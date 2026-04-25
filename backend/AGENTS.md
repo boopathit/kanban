@@ -10,21 +10,33 @@ backend/
   uv.lock                Pinned lockfile (committed)
   app/
     __init__.py
-    main.py              create_app() factory; mounts routers + SPAStaticFiles
+    main.py              create_app() factory; builds engine, runs init_db(), mounts routers + SPAStaticFiles
     config.py            Settings (pydantic-settings): SESSION_SECRET, OPENROUTER_API_KEY, DB_PATH, STATIC_DIR
     static.py            SPAStaticFiles: StaticFiles subclass with SPA fallback
+    auth.py              JWT cookie auth (Part 4)
+    db.py                SQLAlchemy engine, session factory, idempotent init_db() + seed (Part 6)
+    db_deps.py           FastAPI dependency that yields a session from app.state.session_factory (Part 6)
+    models.py            ORM models mirroring docs/schema.json: User/Board/Column/Card/Conversation/Message (Part 6)
+    schemas.py           Pydantic request/response models for the board API (Part 6)
+    services/
+      board.py           Board reads/writes scoped to the authenticated user (Part 6)
     routes/
       __init__.py
       health.py          GET /api/health -> {"status": "ok"}
+      auth.py            POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me (Part 4)
+      board.py           GET /api/board, PATCH /api/columns/{id}, POST/PATCH/DELETE /api/cards (Part 6)
   static/
     index.html           Local-dev fallback served at / when running uvicorn directly
                          (in the container, STATIC_DIR is overridden to /app/static
                          which holds the built frontend export)
   tests/
-    conftest.py          Builds a Settings + TestClient fixture using a tmp static dir
+    conftest.py          Builds a Settings + TestClient fixture, plus an auth_client logged in as the seeded user
     test_health.py
     test_static.py
     test_static_export.py  Verifies SPA fallback + /_next asset wiring + /api isolation
+    test_auth.py
+    test_db_init.py        Schema, PRAGMAs, idempotent seed, cascade-on-user-delete (Part 6)
+    test_board.py          Wire contract, CRUD, moves/repack, cross-user isolation, 401/404 cases (Part 6)
 ```
 
 ## Configuration
@@ -78,8 +90,8 @@ Tests build their own `Settings` + `TestClient` via `conftest.py`, with a temp `
 
 ## Notes for later parts
 
-- Part 6 will add `app/db.py`, `app/models.py`, `app/schemas.py`, `app/services/board.py`, `app/routes/board.py`, plus a startup hook that calls `init_db()`.
 - Part 8 will add `app/openrouter.py` and `app/routes/ai.py`.
+- Part 9 will add a conversation router using the `conversations` + `messages` tables already declared in `app/models.py`.
 - The `SPAStaticFiles` mount currently sits at `/`. Because routers are added BEFORE the static mount in `create_app`, all `/api/*` routes still take precedence — keep that order when adding new routers.
 
 ## Auth (Part 4)
@@ -100,3 +112,30 @@ Tests build their own `Settings` + `TestClient` via `conftest.py`, with a temp `
 | `GET`  | `/api/auth/me` | session cookie | `200 {"username": "..."}` if valid; `401` otherwise. |
 
 `create_app(settings=...)` installs `app.dependency_overrides[get_settings] = lambda: settings` so test-injected settings flow through to `get_current_user`. Without that, the dependency would resolve `Settings()` from the real env on every call.
+
+## Persistence (Part 6)
+
+`app/db.py` builds a SQLAlchemy `Engine` against `settings.DB_PATH` and registers two SQLite PRAGMAs on every connection:
+
+- `PRAGMA foreign_keys = ON` — required for the `ON DELETE CASCADE` chain `users → boards → columns → cards`.
+- `PRAGMA journal_mode = WAL` — concurrent reads while a write is in flight.
+
+`init_db(engine)` creates the schema (idempotent via `Base.metadata.create_all`) and seeds the demo `user`/board on first run only — the seed is keyed on `username = 'user'`, so re-running it is a no-op. `create_app` calls `init_db` eagerly so the very first request already sees a populated database.
+
+The session per request comes from `app/db_deps.get_db`, which reads `request.app.state.session_factory`. That factory is built once per app in `create_app(settings)`, so tests that pass their own `Settings` get an isolated SQLite file with no global state to clean up.
+
+`app/services/board.py` is the single source of truth for board mutations. Every public function takes the authenticated `username`, resolves the user's `Board`, and works only inside it. Lookups for a column or card not on that board raise `BoardNotFound`, translated to **404** at the route layer (never 403 — we don't leak whether the id exists on someone else's board). Position is repacked to contiguous `0..N-1` after every move/delete, matching the contract in `docs/db.md`.
+
+## Board API (Part 6)
+
+`app/routes/board.py` mounts under `/api/*`, all auth-gated:
+
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| `GET`    | `/api/board`             | — | `200 {columns: [{id, title, cardIds}], cards: {id: {id, title, details}}}` — matches `frontend/src/lib/kanban.ts#BoardData`. |
+| `PATCH`  | `/api/columns/{id}`      | `{title}` | `200 ColumnSummary` |
+| `POST`   | `/api/cards`             | `{column_id, title, details?}` | `201 CardSummary`; appended to the column's tail position. |
+| `PATCH`  | `/api/cards/{id}`        | `{title?, details?, column_id?, position?}` | `200 CardSummary`; positions repacked in source and target columns. `position` is clamped to `[0, len]`. |
+| `DELETE` | `/api/cards/{id}`        | — | `204`; remaining cards in the column are repacked. |
+
+Unauthenticated calls → `401`. Calls referencing a column/card not on the caller's board → `404`. Validation errors (blank title, negative position, unknown fields) → `422` from Pydantic.

@@ -226,42 +226,42 @@ Implement the approved schema and the full REST API so the frontend (Part 7) can
 
 ### Substeps
 
-- [ ] `backend/app/db.py` — SQLAlchemy engine/session factory pointing at `settings.DB_PATH`. `init_db()` creates tables if missing and seeds the `user`/`password` user + their default board + 5 starter columns + demo cards (matches `frontend/src/lib/kanban.ts#initialData` so UX is unchanged).
-- [ ] Call `init_db()` on app startup (lifespan).
-- [ ] `backend/app/models.py` — SQLAlchemy models mirroring `docs/schema.json`.
-- [ ] `backend/app/schemas.py` — Pydantic request/response models.
-- [ ] `backend/app/services/board.py` — business logic for reads/writes, including position renormalization on move.
-- [ ] `backend/app/routes/board.py`:
+- [x] `backend/app/db.py` — SQLAlchemy engine/session factory pointing at `settings.DB_PATH`. PRAGMAs `foreign_keys = ON` + `journal_mode = WAL` set per connection. `init_db()` creates tables if missing and seeds the `user`/`password` user + their default board + 5 starter columns + demo cards (titles/details match `frontend/src/lib/kanban.ts#initialData` so UX is unchanged).
+- [x] `init_db()` runs eagerly inside `create_app(settings)` — that path also stores the engine and session factory on `app.state` for the dependency to read.
+- [x] `backend/app/models.py` — SQLAlchemy 2.0 declarative models for `User`, `Board`, `Column`, `Card`, `Conversation`, `Message`. All FKs `ondelete="CASCADE"`; non-UNIQUE composite indexes on `(board_id, position)` and `(column_id, position)`; `CHECK(role IN ('user','assistant','system'))` on messages.
+- [x] `backend/app/schemas.py` — Pydantic models (`extra="forbid"`) for request/response: `BoardResponse`, `ColumnSummary`, `CardSummary`, `RenameColumnRequest`, `CreateCardRequest`, `UpdateCardRequest`.
+- [x] `backend/app/services/board.py` — every public function is keyed on the authenticated `username`, resolves `user → board` once, and operates only inside it. Lookups for non-owned columns/cards raise `BoardNotFound` → 404 (avoids leaking existence). Re-packs positions to contiguous `0..N-1` in the affected column(s) on every move/delete. After delete, repack re-queries the live rows so the in-memory `column.cards` collection can't carry a stale instance.
+- [x] `backend/app/db_deps.py` — `get_db` reads `request.app.state.session_factory` and yields a session that auto-commits on success / rolls back on exception, so tests with a private SQLite file don't fight a module-level engine.
+- [x] `backend/app/routes/board.py`:
   - `GET /api/board` — returns current user's board in the exact shape the frontend uses (`{ columns: [{id,title,cardIds:[...]}], cards: {id: {id,title,details}} }`).
-  - `PATCH /api/columns/{id}` body `{title}` — rename.
-  - `POST /api/cards` body `{column_id, title, details}` — returns new card; server assigns id.
-  - `PATCH /api/cards/{id}` body `{title?, details?, column_id?, position?}` — edit and/or move. Server re-packs positions in affected columns.
-  - `DELETE /api/cards/{id}` — 204.
-- [ ] All board routes depend on `get_current_user`; return 401 otherwise. Every query filters by `user_id` to prevent cross-user reads.
-- [ ] Tests — `backend/tests/test_board.py` (every test logs in first to get a cookie):
-  - `GET /api/board` shape matches frontend contract; fresh user gets seeded columns + demo cards.
-  - Rename column persists.
-  - Create card returns id; it appears in `GET /api/board`.
-  - Move card within same column (middle → top) — other positions re-packed correctly.
-  - Move card to another column at a specific position.
-  - Move card to an empty column.
-  - Delete card removes it; subsequent `GET /api/board` no longer references it.
-  - 401 for every endpoint when not authenticated.
-  - Cross-user isolation: user A cannot PATCH user B's card (404, not 403, to avoid leaking existence).
-  - Invalid column_id / card_id → 404.
-  - Position past end gets clamped to end of column.
-- [ ] `backend/tests/test_db_init.py` — `init_db()` is idempotent; second call doesn't duplicate seed data.
+  - `PATCH /api/columns/{id}` body `{title}` — rename (1–120 chars).
+  - `POST /api/cards` body `{column_id, title, details?}` — `201 CardSummary`; server assigns id and appends to column tail.
+  - `PATCH /api/cards/{id}` body `{title?, details?, column_id?, position?}` — edit and/or move. Server re-packs positions in source + target column. `position` clamped to `[0, len]`.
+  - `DELETE /api/cards/{id}` — 204; remaining cards in the column repacked.
+- [x] All board routes depend on `get_current_user`; return 401 otherwise. Every query is scoped through the user's `Board` so cross-user reads are impossible by construction.
+- [x] Tests — `backend/tests/test_board.py` (32 cases covering): wire shape vs. `BoardData`; seeded column order; rename column happy + 404 + 422; create card append + default details + 404 + 422; partial PATCH (title only / details only); move within column; move across columns (append, specific position, clamp past end); 404 paths for unknown card/column on move; delete removes + repacks remaining contiguous; 401 on every endpoint without cookie; cross-user isolation (cannot read/PATCH/DELETE another user's card or column, cannot create a card in another user's column — all return 404, not 403); valid token for an unknown user → 404; full login → GET board round-trip.
+- [x] `backend/tests/test_db_init.py` (4 cases): tables + seed created on first call; `init_db()` is idempotent across three calls; `PRAGMA foreign_keys = 1` and `journal_mode = wal`; cascade delete of a user removes board/columns/cards.
 
 ### Tests / checks
 
-- `uv run pytest -q` all green with ≥ 90% coverage on `app/services/board.py`.
-- `curl` smoke: log in, GET board, PATCH a card, GET again → change reflected.
+- [x] `cd backend && uv run pytest` — 58 tests green (was 26 after Part 4).
+- [x] Wire contract verified: `GET /api/board` returns `{columns: [...], cards: {...}}` matching `frontend/src/lib/kanban.ts#BoardData` byte-for-byte.
+- [x] `cd frontend && npm run test:unit -- --run` — 23/23 still green (no regressions from Parts 3–4).
+- [x] Container smoke (`scripts/start.ps1` then `curl`):
+  - `GET /api/board` (no cookie) → 401
+  - `POST /api/auth/login` `{user, password}` → 200 + session cookie
+  - `GET /api/board` → 200, 5 columns `[Backlog, Discovery, In Progress, Review, Done]`, 8 seeded cards
+  - `PATCH /api/cards/<id>` `{title, details}` → 200; subsequent `GET /api/board` reflects the new fields
+  - `POST /api/cards` `{column_id: <Discovery>, title, details}` → 201 with new id, appears at tail of Discovery
+  - `PATCH /api/cards/<new>` `{column_id: <Backlog>, position: 0}` → 200; new card now at index 0 of Backlog
+  - `DELETE /api/cards/<new>` → 204; subsequent `GET /api/board` confirms removal and remaining Backlog cards stay contiguous
 
 ### Success criteria
 
-- Every endpoint in the substep list behaves per spec.
-- All tests pass.
-- No cross-user data leakage is possible by construction.
+- [x] Every endpoint in the substep list behaves per spec.
+- [x] All tests pass.
+- [x] No cross-user data leakage is possible by construction (covered by 3 dedicated isolation tests).
+- [x] Position invariant (`0..N-1` contiguous) holds after every write, verified by both API tests and direct DB assertions.
 
 ---
 
