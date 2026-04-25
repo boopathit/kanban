@@ -7,5 +7,6 @@ def test_health_returns_ok(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_health_is_under_api_prefix(client: TestClient) -> None:
-    assert client.get("/health").status_code == 404
+def test_unknown_api_path_returns_404(client: TestClient) -> None:
+    response = client.get("/api/does-not-exist")
+    assert response.status_code == 404

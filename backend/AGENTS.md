@@ -10,17 +10,21 @@ backend/
   uv.lock                Pinned lockfile (committed)
   app/
     __init__.py
-    main.py              create_app() factory; mounts routers + StaticFiles
+    main.py              create_app() factory; mounts routers + SPAStaticFiles
     config.py            Settings (pydantic-settings): SESSION_SECRET, OPENROUTER_API_KEY, DB_PATH, STATIC_DIR
+    static.py            SPAStaticFiles: StaticFiles subclass with SPA fallback
     routes/
       __init__.py
       health.py          GET /api/health -> {"status": "ok"}
   static/
-    index.html           Placeholder served at / until Part 3 swaps in frontend/out
+    index.html           Local-dev fallback served at / when running uvicorn directly
+                         (in the container, STATIC_DIR is overridden to /app/static
+                         which holds the built frontend export)
   tests/
     conftest.py          Builds a Settings + TestClient fixture using a tmp static dir
     test_health.py
     test_static.py
+    test_static_export.py  Verifies SPA fallback + /_next asset wiring + /api isolation
 ```
 
 ## Configuration
@@ -39,7 +43,11 @@ All config is loaded by `pydantic-settings` from environment variables (case-ins
 ## Routes
 
 - `GET /api/health` — liveness probe; used by the start scripts and the Docker `HEALTHCHECK`.
-- `GET /` and `GET /<path>` — static files served from `STATIC_DIR` (FastAPI's `StaticFiles(html=True)` falls back to `index.html` for directory requests).
+- `GET /` and `GET /<path>` — served from `STATIC_DIR` via `SPAStaticFiles` (a `StaticFiles` subclass). Behaviour:
+  - Existing files are served as-is (HTML, JS, CSS, fonts, etc.).
+  - An extensionless path with no matching file (e.g. `/login`, `/projects/123`) falls back to `index.html` so the frontend's client-side router can take over.
+  - A missing path with a file extension (e.g. `/_next/static/missing.js`) still returns 404, so broken asset references surface clearly.
+  - `/api/*` paths never reach this fallback because the API router is registered before the static mount; even if the API router 404s, `SPAStaticFiles` skips its fallback for any path beginning with `api/`.
 
 ## Run locally (without Docker)
 
@@ -49,7 +57,14 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/` and `http://127.0.0.1:8000/api/health`.
+Open `http://127.0.0.1:8000/` (placeholder card) and `http://127.0.0.1:8000/api/health`.
+
+To serve the real frontend without Docker, build it first and point `STATIC_DIR` at the export:
+
+```bash
+cd frontend && npm ci && npm run build
+cd ../backend && STATIC_DIR=../frontend/out uv run uvicorn app.main:app --reload
+```
 
 ## Tests
 

@@ -94,36 +94,30 @@ Replace the placeholder HTML with the real Kanban demo, built via `next build` w
 
 ### Substeps
 
-- [ ] Edit `frontend/next.config.ts` to set:
-  ```ts
-  const nextConfig: NextConfig = {
-    output: "export",
-    images: { unoptimized: true },
-    trailingSlash: false,
-  };
-  ```
-- [ ] Verify all pages/components are client-compatible (no Server Components requiring a server, no server actions, no `app/api/*`). Current code already is; confirm by building locally.
-- [ ] Add `frontend/package.json` script `build:export` (alias of `build` for clarity) if helpful.
-- [ ] Update `Dockerfile` stage 1 to actually run `npm ci && npm run build`, producing `frontend/out/`. Stage 2 copies `frontend/out/` → `/app/static/`.
-- [ ] Delete the Part-2 placeholder `backend/static/index.html` (or keep it as a fallback used only outside the container — document clearly).
-- [ ] Add a SPA-fallback route in FastAPI so unknown non-`/api` paths return `index.html` (needed if any client-side route is introduced later; harmless now).
-- [ ] Extend existing Playwright suite `frontend/tests/kanban.spec.ts` with a "static export served by FastAPI" project:
-  - Add a second Playwright project `static-export` whose `webServer` is the docker stack (or have the CI job start it), `baseURL: http://127.0.0.1:8000`.
-  - Keep the existing `dev` project for `npm run test:e2e` during development.
-- [ ] Add a backend integration test `backend/tests/test_static_export.py` that, given a built `out/` directory fixture, asserts `/` returns HTML referencing at least one asset under `/_next/`.
+- [x] Edit `frontend/next.config.ts` to set `output: "export"`, `images: { unoptimized: true }`, `trailingSlash: false`.
+- [x] Verified pages/components are client-compatible: `npm run build` succeeds, prerenders only `/` and `/_not-found` as static, writes `frontend/out/index.html` referencing `/_next/static/chunks/*.{js,css}` and font assets.
+- [x] Convert `Dockerfile` to multi-stage: `node:22-alpine` stage runs `npm ci && npm run build`, then `python:3.12-slim` runtime stage copies `--from=frontend /frontend/out` into `/app/static`. (Replaces the placeholder copy from Part 2.)
+- [x] Keep `backend/static/index.html` as a local-dev fallback (used only when running uvicorn directly without Docker — STATIC_DIR defaults to `<backend>/static`). Documented in `backend/AGENTS.md`.
+- [x] Add SPA fallback via a `SPAStaticFiles` subclass at `backend/app/static.py`: serves `index.html` for unknown extensionless paths, never overrides `/api/*` 404s, never swallows missing-asset 404s (paths with `.` extension still 404).
+- [x] Add Playwright config for static export at `frontend/playwright.static.config.ts`: spawns `uv run uvicorn app.main:app --port 8000` with `STATIC_DIR=<repo>/frontend/out`, `baseURL=http://127.0.0.1:8000`, `workers: 1` (single backend process). Keep the existing `playwright.config.ts` for the dev-server flow. New `npm run test:e2e:static` script builds the export then runs Playwright.
+- [x] Add `backend/tests/test_static_export.py`: builds a Next-shaped fixture (`index.html` referencing `/_next/static/chunks/main.js` + the asset), verifies root serves the indexed HTML, asset returns 200 with content, SPA fallback handles `/login` and `/projects/123/edit`, missing `_next` asset still 404s, `/api/does-not-exist` still 404s, `/api/health` still wins over the static mount.
 
 ### Tests / checks
 
-- `cd frontend && npm run build` succeeds and writes `frontend/out/index.html`.
-- Container rebuild: `scripts/start.sh` → `http://localhost:8000/` loads the Kanban board, all 5 columns render, fonts load (Manrope/Space Grotesk), no 404s in network tab for `_next/*` assets.
-- `npm run test:unit` and `npm run test:e2e` still pass against dev server.
-- `npm run test:e2e -- --project=static-export` passes against the running container.
+- [x] `cd frontend && npm run build` succeeds and writes `frontend/out/index.html`.
+- [x] `cd backend && uv run pytest` — 11/11 green, 96 % coverage on `app/`.
+- [x] `cd frontend && npm run test:unit` — 6/6 green.
+- [x] `cd frontend && npm run test:e2e:static` — 3/3 green against FastAPI serving `frontend/out/` (~3.5 s).
+- [x] `cd frontend && npm run lint` — no warnings.
+- Container rebuild: `scripts/start.sh` (or `.ps1`) → `http://localhost:8000/` loads the real Kanban board, all 5 columns render, fonts load, no 404s for `_next/*` assets. *(Pending user verification — Docker not present on the agent shell.)*
+- `cd frontend && npm run test:e2e` against the dev server: not run by the agent (slow, untouched flow). *(Pending user verification if desired.)*
 
 ### Success criteria
 
-- Kanban demo served from the container is visually and functionally identical to `npm run dev`.
-- No regressions in Vitest or Playwright suites.
-- No build-time use of server-only Next.js features remains.
+- [x] Static export builds, is served by FastAPI, and the e2e suite passes against it.
+- [x] No regressions in Vitest or backend pytest suites.
+- [x] No build-time use of server-only Next.js features remains.
+- Visual parity with `npm run dev` confirmed in the container. *(Pending user.)*
 
 ---
 

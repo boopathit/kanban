@@ -1,4 +1,16 @@
 # syntax=docker/dockerfile:1.7
+
+# Stage 1: build the Next.js static export.
+FROM node:22-alpine AS frontend
+WORKDIR /frontend
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build
+
+# Stage 2: Python runtime serving FastAPI + the built frontend.
 FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -14,11 +26,11 @@ COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-COPY backend/pyproject.toml backend/uv.lock* ./
+COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY backend/app ./app
-COPY backend/static ./static
+COPY --from=frontend /frontend/out ./static
 
 ENV STATIC_DIR=/app/static \
     DB_PATH=/app/data/pm.db
