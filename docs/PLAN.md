@@ -138,44 +138,55 @@ Hide the Kanban behind a login page. Unauthenticated visits to `/` redirect to `
 
 ### Substeps
 
-- [ ] Backend:
-  - [ ] `backend/app/auth.py` — helpers: `create_token(sub: str) -> str`, `decode_token(token: str) -> dict`, `get_current_user` dependency that reads the cookie, raises 401 if invalid/missing.
-  - [ ] `backend/app/routes/auth.py`:
-    - `POST /api/auth/login` body `{username, password}`; if hardcoded match, issue JWT, set cookie `session` (httpOnly, SameSite=Lax, Secure=False for local http, 7-day max-age), return `{username: "user"}`.
-    - `POST /api/auth/logout` — clear cookie, return 204.
-    - `GET /api/auth/me` — returns `{username}` if cookie valid, else 401.
-  - [ ] Register `auth` router under `/api`.
-  - [ ] Constant-time compare for credentials (`hmac.compare_digest`) so brute-force timing differences are avoided even for the hardcoded case.
-- [ ] Frontend:
-  - [ ] Add `src/app/login/page.tsx` — client component with a small centered form, brand styling (uses the same CSS vars), calls `POST /api/auth/login` with `credentials: "include"`, redirects to `/` on success, shows an inline error on 401.
-  - [ ] Add `src/lib/api.ts` — thin typed `fetch` wrapper that always sends `credentials: "include"` and throws on non-2xx.
-  - [ ] Add `src/lib/auth.ts` — `getCurrentUser()` wrapping `GET /api/auth/me`.
-  - [ ] Edit `src/app/page.tsx`: turn into a small client component that checks auth on mount; if 401, `router.replace("/login")`; if ok, render `<KanbanBoard />`. (Keep export-compatible — no server-only code.)
-  - [ ] Add a Logout button to `KanbanBoard` header; calls `POST /api/auth/logout` then redirects to `/login`.
-  - [ ] Ensure `next.config.ts` still builds to static export with the new `/login` route.
-- [ ] Tests:
-  - [ ] Backend: `backend/tests/test_auth.py`:
-    - login with correct creds → 200, sets cookie, body has username
-    - login with wrong creds → 401
-    - `me` without cookie → 401
-    - `me` with valid cookie → 200
-    - logout clears cookie (subsequent `me` → 401)
-    - expired/tampered token → 401
-  - [ ] Frontend unit: `src/app/login/page.test.tsx` — renders form, shows error on failed fetch (mock `fetch`), redirects on success.
-  - [ ] Frontend unit: update `KanbanBoard.test.tsx` — presence of "Log out" button; clicking it calls the API (mock).
-  - [ ] Playwright: `tests/auth.spec.ts` — visiting `/` unauthenticated redirects to `/login`; invalid creds show an error; valid creds reveal the board; logout returns to `/login`.
+- [x] Backend:
+  - [x] `backend/app/auth.py` — helpers: `create_token(username)`, `decode_token(token)`, `get_current_user` dependency reading the `session` cookie. `verify_credentials()` uses `hmac.compare_digest` for constant-time comparison.
+  - [x] `backend/app/routes/auth.py`:
+    - `POST /api/auth/login` body `{username, password}`; on match, issues an HS256 JWT and sets cookie `session` (httpOnly, SameSite=Lax, Secure=False for local http, 7-day Max-Age, Path=/). Returns `{"username":"user"}`.
+    - `POST /api/auth/logout` clears the cookie and returns 204.
+    - `GET /api/auth/me` returns `{"username":"user"}` when the cookie is valid, else 401.
+  - [x] Router registered under `/api/auth/*` in `app/main.py`.
+  - [x] `app.dependency_overrides[get_settings]` is wired in `create_app(settings)` so test-injected settings flow through to deps that resolve `get_settings`.
+- [x] Frontend:
+  - [x] `src/lib/api.ts` — `apiFetch<T>(path, init)` wrapper that always sends `credentials: "include"`, JSON-encodes `init.json`, parses JSON responses, returns `null` for 204, and throws a typed `ApiError(status, detail)` on non-2xx.
+  - [x] `src/lib/auth.ts` — `login`, `logout`, `getCurrentUser` thin functions on top of `apiFetch`.
+  - [x] `src/app/login/page.tsx` — brand-styled, centered, accessible form. On submit calls `login()`; on success `router.replace("/")`; on `ApiError(401)` shows `"Invalid username or password."`, on other errors shows `"Sign-in failed. Please try again."`.
+  - [x] `src/app/page.tsx` — converted to a client component that calls `getCurrentUser()` in a `useEffect`. While checking, renders a small `data-testid="auth-checking"` placeholder. On 401 `router.replace("/login")`; on success renders `<KanbanBoard onLogout={...} />`.
+  - [x] `KanbanBoard` accepts an optional `onLogout` prop; when provided, renders a "Log out" button (`data-testid="logout-button"`) in the header. The home page wires it to call `logout()` then `router.replace("/login")`.
+- [x] Tests:
+  - [x] **Backend** `backend/tests/test_auth.py` — 15 tests including: login OK sets the right cookie attributes (HttpOnly, SameSite=lax, Path=/, Secure absent on local http); wrong password / wrong username → 401 + no cookie; pydantic validation rejects empty/missing fields (5 parametrised cases); `me` without cookie → 401; `me` with valid cookie → 200; logout clears the cookie and the next `me` → 401; tampered token → 401; token signed with wrong secret → 401; expired token → 401; token without `sub` claim → 401.
+  - [x] **Frontend unit** `src/lib/api.test.ts` (7), `src/app/login/page.test.tsx` (4), `src/app/page.test.tsx` (4), and 2 new cases in `KanbanBoard.test.tsx` (logout button hidden by default, clicking calls `onLogout`).
+  - [x] **Playwright** `tests/auth.spec.ts` (6): unauth `/` → redirect; wrong creds show inline error; valid creds reveal the board; reload preserves session; logout bounces to `/login` and `/` is then locked again; cookie is httpOnly + SameSite=Lax and not readable from `document.cookie`.
+  - [x] **Playwright** `tests/kanban.spec.ts` updated: each test programmatically logs in via `request.post('/api/auth/login', …)` first, with `test.skip` if the backend isn't reachable (so the dev-mode Playwright config no longer hard-fails when there's no backend).
 
 ### Tests / checks
 
-- All new and existing unit and e2e tests pass.
-- Manual: cookie is httpOnly (not readable from `document.cookie`), SameSite=Lax, 7d expiry.
+- [x] `cd backend && uv run pytest --cov` — 26 tests green, 99 % coverage.
+- [x] `cd frontend && npm run test:unit` — 23 tests green.
+- [x] `cd frontend && npm run lint` — no warnings.
+- [x] `cd frontend && npm run test:e2e:static` — 9 tests green (6 auth + 3 kanban).
+- [x] Container build + smoke (`scripts/start.ps1`):
+  - `GET /api/auth/me` (no cookie) → 401
+  - `POST /api/auth/login` `{user, nope}` → 401, no Set-Cookie
+  - `POST /api/auth/login` `{user, password}` → 200, Set-Cookie: `session=…; HttpOnly; Max-Age=604800; Path=/; SameSite=lax`
+  - `GET /api/auth/me` with cookie → 200 `{"username":"user"}`
+  - `POST /api/auth/logout` → 204
+  - `GET /api/auth/me` after logout → 401
+  - `GET /login` → 200 with the real `<form>` (Sign in to Kanban Studio + username/password inputs + submit)
+  - `GET /` → 200 (Kanban shell that JS-checks auth and redirects to `/login` when 401)
+  - `GET /api/notexist` → 404; `GET /_next/static/chunks/missing.js` → 404 (no SPA bleed)
+- [x] `scripts/stop.ps1` — container + network removed cleanly.
 
 ### Success criteria
 
-- Unauthenticated `/` redirects to `/login`.
-- `user`/`password` logs in; wrong creds show an error.
-- Auth survives a page reload.
-- Logout immediately bounces back to `/login`.
+- [x] Unauthenticated `/` redirects to `/login`.
+- [x] `user`/`password` logs in; wrong creds show a clear inline error.
+- [x] Auth survives a page reload.
+- [x] Logout immediately bounces back to `/login`, and `/` is locked again.
+- [x] Session cookie is httpOnly + SameSite=Lax with a 7-day max-age, not readable from `document.cookie`.
+
+### Notable mid-task fix
+
+Live verification revealed the SPA fallback was over-eager: Next's static export emits `login.html` (flat), not `login/index.html`, and Starlette's `StaticFiles(html=True)` doesn't auto-resolve `<path>.html`. As a result `/login` was 404'ing out of `StaticFiles` and the SPA fallback served `index.html` (the Kanban shell) instead. `SPAStaticFiles` now also tries `<path>.html` for extensionless paths before falling back to `index.html`. Two new tests in `test_static_export.py` (login.html resolution + dynamic-path fallback) cover both branches.
 
 ---
 

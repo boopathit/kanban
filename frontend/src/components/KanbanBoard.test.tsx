@@ -1,3 +1,4 @@
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { KanbanBoard } from "@/components/KanbanBoard";
@@ -42,5 +43,19 @@ describe("KanbanBoard", () => {
     await userEvent.click(deleteButton);
 
     expect(within(column).queryByText("New card")).not.toBeInTheDocument();
+  });
+
+  it("hides the logout button when no onLogout prop is provided", () => {
+    render(<KanbanBoard />);
+    expect(screen.queryByTestId("logout-button")).not.toBeInTheDocument();
+  });
+
+  it("renders a logout button that calls onLogout when clicked", async () => {
+    const onLogout = vi.fn();
+    render(<KanbanBoard onLogout={onLogout} />);
+    const button = screen.getByTestId("logout-button");
+    expect(button).toHaveTextContent(/log out/i);
+    await userEvent.click(button);
+    expect(onLogout).toHaveBeenCalledTimes(1);
   });
 });

@@ -35,6 +35,12 @@ def export_client(tmp_path: Path) -> TestClient:
         '<!doctype html><html><body><h1>Next 404</h1></body></html>',
         encoding="utf-8",
     )
+    # Mimic Next's per-route static file: GET /login should resolve to this,
+    # not fall back to index.html.
+    (static_dir / "login.html").write_text(
+        '<!doctype html><html><body><h1>Sign in</h1></body></html>',
+        encoding="utf-8",
+    )
     settings = Settings(
         SESSION_SECRET="test",
         DB_PATH=tmp_path / "pm.db",
@@ -57,18 +63,25 @@ def test_next_asset_is_served_with_real_content(export_client: TestClient) -> No
     assert "console.log('kanban')" in response.text
 
 
-def test_spa_fallback_returns_index_for_unknown_extensionless_path(
+def test_login_route_resolves_to_login_html(
     export_client: TestClient,
 ) -> None:
+    """Next exports /login as login.html; serve that, not index.html."""
     response = export_client.get("/login")
     assert response.status_code == 200
-    assert "Kanban Studio" in response.text
+    assert "Sign in" in response.text
+    assert "Kanban Studio" not in response.text
+    assert "Next 404" not in response.text
 
 
-def test_spa_fallback_works_for_nested_route(export_client: TestClient) -> None:
+def test_spa_fallback_for_unknown_extensionless_path(
+    export_client: TestClient,
+) -> None:
+    """Dynamic routes with no pre-rendered .html fall back to index.html."""
     response = export_client.get("/projects/123/edit")
     assert response.status_code == 200
     assert "Kanban Studio" in response.text
+    assert "Next 404" not in response.text
 
 
 def test_spa_fallback_does_not_swallow_missing_assets(
@@ -76,16 +89,6 @@ def test_spa_fallback_does_not_swallow_missing_assets(
 ) -> None:
     response = export_client.get("/_next/static/chunks/missing.js")
     assert response.status_code == 404
-
-
-def test_spa_fallback_wins_over_starlette_404_html(
-    export_client: TestClient,
-) -> None:
-    """For SPA routes, prefer index.html even if a 404.html exists."""
-    response = export_client.get("/login")
-    assert response.status_code == 200
-    assert "Kanban Studio" in response.text
-    assert "Next 404" not in response.text
 
 
 def test_api_404_is_not_overridden_by_spa_fallback(
