@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 
 from app.config import Settings, get_settings
-from app.routes import auth, health
+from app.db import init_db, make_engine, make_session_factory
+from app.routes import auth, board, health
 from app.static import SPAStaticFiles
 
 
@@ -14,8 +15,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # custom Settings via create_app(settings).
     app.dependency_overrides[get_settings] = lambda: settings
 
+    # Build the engine once per app and seed the demo data eagerly so the
+    # very first request hits a populated database.
+    engine = make_engine(settings)
+    init_db(engine)
+    app.state.engine = engine
+    app.state.session_factory = make_session_factory(engine)
+
     app.include_router(health.router)
     app.include_router(auth.router)
+    app.include_router(board.router)
 
     settings.STATIC_DIR.mkdir(parents=True, exist_ok=True)
     app.mount(

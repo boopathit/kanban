@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.auth import HARDCODED_PASSWORD, HARDCODED_USERNAME
 from app.config import Settings
 from app.main import create_app
 
@@ -27,3 +28,14 @@ def settings(tmp_path: Path) -> Settings:
 def client(settings: Settings) -> TestClient:
     app = create_app(settings)
     return TestClient(app)
+
+
+@pytest.fixture
+def auth_client(client: TestClient) -> TestClient:
+    """A TestClient with a valid session cookie for the seeded demo user."""
+    response = client.post(
+        "/api/auth/login",
+        json={"username": HARDCODED_USERNAME, "password": HARDCODED_PASSWORD},
+    )
+    assert response.status_code == 200, response.text
+    return client
