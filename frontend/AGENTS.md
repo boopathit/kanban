@@ -14,28 +14,31 @@ Next.js 16 (App Router) + React 19 + Tailwind CSS v4 demo of the Kanban board. C
 ## Scripts (`package.json`)
 
 - `dev` — `next dev`
-- `build` — `next build`
-- `start` — `next start`
+- `build` — `next build` (configured for **static export**, writes to `frontend/out/`)
+- `start` — `next start` (unused once static export is the deploy mode)
 - `lint` — `eslint`
 - `test` / `test:unit` — Vitest (single run)
 - `test:unit:watch` — Vitest watch mode
-- `test:e2e` — Playwright
-- `test:all` — unit then e2e
+- `test:e2e` — Playwright against `next dev` (uses `playwright.config.ts`)
+- `test:e2e:static` — `npm run build` then Playwright against FastAPI serving `frontend/out/` (uses `playwright.static.config.ts`); spawns `uv run uvicorn` with `STATIC_DIR=<repo>/frontend/out`
+- `test:all` — unit then e2e (dev)
 
 ## Testing
 
 - Vitest + `@testing-library/react` + `@testing-library/user-event`, jsdom environment, globals enabled. Setup at `src/test/setup.ts` (imports `@testing-library/jest-dom`). Config at `vitest.config.ts` — picks up `src/**/*.{test,spec}.{ts,tsx}`, excludes `tests/`.
-- Playwright at `playwright.config.ts`, base URL `http://127.0.0.1:3000`, specs in `tests/`. Webserver command is `npm run dev -- --hostname 127.0.0.1 --port 3000` with `reuseExistingServer: true`.
+- Playwright (dev) at `playwright.config.ts`, base URL `http://127.0.0.1:3000`, specs in `tests/`. Webserver command is `npm run dev -- --hostname 127.0.0.1 --port 3000` with `reuseExistingServer: true`.
+- Playwright (static export) at `playwright.static.config.ts`, base URL `http://127.0.0.1:8000`, same specs in `tests/`. Webserver runs `uv run uvicorn app.main:app --port 8000` from `backend/` with `STATIC_DIR` pointed at `frontend/out`. Workers are pinned to 1 (single backend process). Run via `npm run test:e2e:static`.
 
 ## File layout
 
 ```
 frontend/
-  next.config.ts             Empty config (no output mode set yet)
+  next.config.ts             output: "export", images.unoptimized, trailingSlash: false
   tsconfig.json              Path alias "@/*" -> "./src/*"
   eslint.config.mjs          next/core-web-vitals + next/typescript
   postcss.config.mjs         @tailwindcss/postcss
-  playwright.config.ts       Chromium only, tests/ dir
+  playwright.config.ts       Chromium, dev server (port 3000)
+  playwright.static.config.ts  Chromium, FastAPI serving frontend/out (port 8000), workers: 1
   vitest.config.ts           jsdom, src/** only
   public/                    Default Next.js SVGs (unused by app)
   src/
@@ -81,9 +84,17 @@ All state lives in `useState` inside `KanbanBoard`. Seeded from `initialData`. N
 - Brand tokens exposed as CSS vars in `:root` and surfaced to Tailwind via `@theme inline` (`--color-foreground`, `--color-background`, `--font-sans`).
 - Arbitrary-value classes like `bg-[var(--surface-strong)]` and `ring-[var(--accent-yellow)]` are used throughout.
 
+## Build output
+
+`npm run build` writes a static export to `frontend/out/`. The interesting bits:
+- `out/index.html` — prerendered shell with `<div id="__next">` and links to `/_next/static/chunks/*.{js,css}` plus font files under `/_next/static/media/`.
+- `out/_next/static/...` — hashed JS, CSS, font, and media bundles.
+- `out/404.html`, `out/_not-found.html`, `out/favicon.ico`, plus the public/* SVGs.
+
+In production this directory is copied into the runtime image at `/app/static/` and served by FastAPI. Locally without Docker, run `STATIC_DIR=../frontend/out uv run uvicorn ...` from the backend folder (see `backend/AGENTS.md`).
+
 ## Known gaps to close during integration
 
-- `next.config.ts` has no `output` set. For Part 3 (static export served by FastAPI) it will need `output: "export"` and `images: { unoptimized: true }`.
 - No routing beyond `/`. Login page at `/login` will be added in Part 4 (static export supports this via a page directory, no dynamic params needed).
 - No API client. A small `src/lib/api.ts` will be added in Part 7 for typed `fetch` calls to `/api/*`.
 - Board state is monolithic `useState`. It will likely be moved behind a hook (e.g. `useBoard`) that loads from and PATCHes to the backend.

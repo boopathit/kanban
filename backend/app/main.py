@@ -1,8 +1,8 @@
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, get_settings
 from app.routes import health
+from app.static import SPAStaticFiles
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -14,7 +14,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings.STATIC_DIR.mkdir(parents=True, exist_ok=True)
     app.mount(
         "/",
-        StaticFiles(directory=str(settings.STATIC_DIR), html=True),
+        SPAStaticFiles(directory=str(settings.STATIC_DIR), html=True),
         name="static",
     )
 
