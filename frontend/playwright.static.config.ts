@@ -23,6 +23,7 @@ export default defineConfig({
       ...(process.env as Record<string, string>),
       STATIC_DIR: staticDir,
       DB_PATH: path.join(repoRoot, "backend", ".pytest-data", "pm.db"),
+      SESSION_SECRET: "playwright-static-export-secret",
     },
     url: "http://127.0.0.1:8000/api/health",
     reuseExistingServer: false,

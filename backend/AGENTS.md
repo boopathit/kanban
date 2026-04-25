@@ -78,7 +78,25 @@ Tests build their own `Settings` + `TestClient` via `conftest.py`, with a temp `
 
 ## Notes for later parts
 
-- Part 4 will add `app/auth.py` and `app/routes/auth.py`, register the router under `/api`, and introduce a `get_current_user` dependency.
 - Part 6 will add `app/db.py`, `app/models.py`, `app/schemas.py`, `app/services/board.py`, `app/routes/board.py`, plus a startup hook that calls `init_db()`.
 - Part 8 will add `app/openrouter.py` and `app/routes/ai.py`.
-- The `StaticFiles` mount currently sits at `/`. Because routers are added BEFORE the static mount in `create_app`, all `/api/*` routes still take precedence — keep that order when adding new routers.
+- The `SPAStaticFiles` mount currently sits at `/`. Because routers are added BEFORE the static mount in `create_app`, all `/api/*` routes still take precedence — keep that order when adding new routers.
+
+## Auth (Part 4)
+
+`app/auth.py` exposes:
+
+- `verify_credentials(username, password)` — constant-time check against the hardcoded `user`/`password`.
+- `create_token(username)` — issues an HS256 JWT (`sub`, `iat`, `exp`) signed with `settings.SESSION_SECRET`, valid for `TOKEN_TTL_SECONDS` (7 days).
+- `decode_token(token)` — returns claims, or raises `AuthError` on any JWT failure.
+- `get_current_user(settings, session_cookie)` — FastAPI dependency. Reads the `session` cookie, returns the username, or raises `HTTPException(401)`.
+
+`app/routes/auth.py` mounts under `/api/auth/*`:
+
+| Method | Path | Body / cookie | Response |
+|--------|------|---------------|----------|
+| `POST` | `/api/auth/login` | JSON `{username, password}` | `200 {"username": "..."}` + `Set-Cookie: session=…; HttpOnly; Max-Age=604800; Path=/; SameSite=lax` on success; `401 {"detail": "Invalid username or password"}` on mismatch. |
+| `POST` | `/api/auth/logout` | session cookie (optional) | `204` and clears the cookie. |
+| `GET`  | `/api/auth/me` | session cookie | `200 {"username": "..."}` if valid; `401` otherwise. |
+
+`create_app(settings=...)` installs `app.dependency_overrides[get_settings] = lambda: settings` so test-injected settings flow through to `get_current_user`. Without that, the dependency would resolve `Settings()` from the real env on every call.

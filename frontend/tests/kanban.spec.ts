@@ -1,5 +1,22 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ context, request }) => {
+  await context.clearCookies();
+  // Auth via the API so each test starts with a valid session cookie.
+  // (Static-export config talks to the real FastAPI; dev config has no /api/*
+  // and these specs are skipped there — see frontend/AGENTS.md.)
+  const login = await request.post("/api/auth/login", {
+    data: { username: "user", password: "password" },
+    failOnStatusCode: false,
+  });
+  test.skip(
+    login.status() !== 200,
+    "Backend not reachable; run with playwright.static.config.ts"
+  );
+  const cookies = await request.storageState();
+  await context.addCookies(cookies.cookies);
+});
+
 test("loads the kanban board", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Kanban Studio" })).toBeVisible();
