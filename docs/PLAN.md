@@ -324,27 +324,37 @@ Wire up the backend to OpenRouter, using `openai/gpt-oss-120b`. Provide a simple
 
 ### Substeps
 
-- [ ] `backend/app/openrouter.py` — small async client built on `httpx.AsyncClient`:
-  - Reads `OPENROUTER_API_KEY` from settings.
-  - `chat(messages, response_format=None, model="openai/gpt-oss-120b") -> dict` — POSTs to `https://openrouter.ai/api/v1/chat/completions`, returns parsed JSON.
-  - Raises a typed `OpenRouterError` on non-2xx.
-- [ ] `backend/app/routes/ai.py`:
-  - `POST /api/ai/ping` — protected by `get_current_user`. Body `{}`. Sends a single user message: "What is 2+2? Reply with just the number." Returns `{answer: <string>}`.
-- [ ] Tests — `backend/tests/test_openrouter.py`:
-  - Unit: stub `httpx.AsyncClient` with `respx` (add dev dep); assert request URL, auth header `Bearer <key>`, model, and that the response is parsed.
-  - Unit: error path returns `OpenRouterError` on 500.
-  - Live smoke test gated by env: `pytest -m live` runs `POST /api/ai/ping` against the real service and asserts the answer contains `"4"`. Skipped by default in CI if `OPENROUTER_API_KEY` is missing.
+- [x] `backend/app/openrouter.py` — async `httpx.AsyncClient` wrapper:
+  - `chat(api_key=..., messages=..., model="openai/gpt-oss-120b", response_format=None) -> dict` — POSTs to `https://openrouter.ai/api/v1/chat/completions`, returns parsed JSON; forwards `response_format` when set (for Part 9).
+  - Raises `OpenRouterError` on HTTP `>= 400`, blank API key, or non-JSON success body.
+  - `assistant_text(data)` — extracts first `choices[].message.content` (never logs the key or upstream error bodies).
+- [x] `backend/app/routes/ai.py` — `POST /api/ai/ping` (prefix `/api/ai`):
+  - Protected by `get_current_user`. Body must be `{}` (`extra="forbid"`).
+  - Sends one user message: "What is 2+2? Reply with just the number." Returns `200 {"answer": "<string>"}`.
+  - `503` when `OPENROUTER_API_KEY` is unset/blank; `502` when OpenRouter fails or returns an empty assistant string.
+- [x] `backend/app/main.py` — `ai.router` registered after `auth`, before `board` (still before `/` static mount).
+- [x] `backend/pyproject.toml` — `markers = ["live: …"]` for the opt-in smoke test.
+- [x] `backend/tests/test_openrouter.py`:
+  - `assistant_text` happy + malformed.
+  - Async `respx` tests: request URL, `Authorization: Bearer <key>`, default model, messages JSON; optional `response_format` in body; `OpenRouterError` on 500; `OpenRouterError` on empty key; `OpenRouterError` on 200 non-JSON.
+  - Route tests (`TestClient`): `401` without session; `503` with session but no API key (default `conftest` settings); `200` + `{answer: "4"}` with mocked upstream; `502` on upstream 500; `502` on empty `choices`.
+  - `@pytest.mark.live` — real `POST /api/ai/ping` when **`OPENROUTER_API_KEY` and `RUN_OPENROUTER_LIVE=1`** are set; asserts `"4"` in `answer`. Otherwise skipped (CI-safe, no accidental spend when only the key is exported).
 
 ### Tests / checks
 
-- `uv run pytest -q` passes (unit).
-- `uv run pytest -q -m live` against real OpenRouter returns a response containing "4".
-- `curl -X POST http://localhost:8000/api/ai/ping --cookie session=...` returns `{"answer":"4"}` (or similar).
+- [x] `cd backend && uv run pytest` — **70 passed, 1 skipped** (live skipped without `RUN_OPENROUTER_LIVE=1` + key).
+- [x] Live: `RUN_OPENROUTER_LIVE=1 OPENROUTER_API_KEY=... uv run pytest -m live -q` — real ping; answer contains `"4"`.
+- [x] `curl` after `POST /api/auth/login` with `POST /api/ai/ping` `{}` — `200` and JSON with `answer` (value depends on model; mocked tests pin `"4"`).
 
 ### Success criteria
 
-- A real request to `openai/gpt-oss-120b` via OpenRouter succeeds locally.
-- API key is never logged; error messages do not leak secrets.
+- A real request to `openai/gpt-oss-120b` via OpenRouter succeeds locally when env is set for the live test.
+- API key is never logged; HTTP error responses to the client are generic (`502` / `503` messages) and do not echo upstream bodies.
+
+### Notable design decisions
+
+- **Two env gates for the live test** — `OPENROUTER_API_KEY` alone is easy to leave exported from `.env`; requiring `RUN_OPENROUTER_LIVE=1` avoids burning quota on every `pytest` run.
+- **Pessimistic HTTP layer** — route maps any `OpenRouterError` to `502` with a fixed detail string so clients never see provider-internal messages.
 
 ---
 
