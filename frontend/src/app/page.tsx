@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { ApiError } from "@/lib/api";
 import { getCurrentUser, logout } from "@/lib/auth";
+import { useBoard } from "@/lib/useBoard";
 
 type AuthState = "checking" | "authed" | "anon";
 
 export default function Home() {
   const router = useRouter();
   const [authState, setAuthState] = useState<AuthState>("checking");
+  const board = useBoard();
 
   useEffect(() => {
     let cancelled = false;
@@ -55,5 +57,14 @@ export default function Home() {
     return null;
   }
 
-  return <KanbanBoard onLogout={handleLogout} />;
+  return (
+    <KanbanBoard
+      board={board.board}
+      loading={board.loading}
+      error={board.error}
+      onDismissError={board.dismissError}
+      actions={board.actions}
+      onLogout={handleLogout}
+    />
+  );
 }

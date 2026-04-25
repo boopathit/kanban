@@ -4,6 +4,11 @@ import path from "node:path";
 const repoRoot = path.resolve(__dirname, "..");
 const staticDir = path.resolve(__dirname, "out");
 
+// Stamp the DB filename per run so each `npx playwright test` starts from a
+// freshly seeded database (init_db only seeds when the demo user is missing).
+// Files land under backend/.pytest-data/ which is gitignored.
+const dbFile = `pm-e2e-${Date.now()}.db`;
+
 export default defineConfig({
   testDir: "./tests",
   timeout: 60_000,
@@ -22,7 +27,7 @@ export default defineConfig({
     env: {
       ...(process.env as Record<string, string>),
       STATIC_DIR: staticDir,
-      DB_PATH: path.join(repoRoot, "backend", ".pytest-data", "pm.db"),
+      DB_PATH: path.join(repoRoot, "backend", ".pytest-data", dbFile),
       SESSION_SECRET: "playwright-static-export-secret",
     },
     url: "http://127.0.0.1:8000/api/health",

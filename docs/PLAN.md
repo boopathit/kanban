@@ -267,33 +267,54 @@ Implement the approved schema and the full REST API so the frontend (Part 7) can
 
 ## Part 7 — Frontend uses the real backend
 
-Replace `useState(initialData)` with data loaded from `/api/board`. Every mutation (drag, rename, add, delete) hits the backend and updates local state from the response.
+Replace `useState(initialData)` with data loaded from `/api/board`. Every mutation (drag, rename, add, delete) hits the backend; the UI updates optimistically and rolls back on error.
 
 ### Substeps
 
-- [ ] Extend `src/lib/api.ts` with typed functions: `getBoard()`, `renameColumn(id, title)`, `createCard(columnId, title, details)`, `patchCard(id, patch)`, `deleteCard(id)`.
-- [ ] Introduce `src/lib/useBoard.ts` hook:
-  - Loads board on mount, exposes `{ board, loading, error, actions }`.
-  - `actions` mirror current handlers in `KanbanBoard.tsx`, doing optimistic updates and rolling back on error.
-  - For drag, compute the target `column_id` + `position` from the existing `moveCard` result, then PATCH.
-- [ ] Refactor `KanbanBoard.tsx` to use `useBoard`. Keep the UI identical.
-- [ ] Add a small skeleton loading state and a non-blocking error toast on failed mutations.
-- [ ] Tests:
-  - [ ] Backend integration: no changes (already covered in Part 6).
-  - [ ] Frontend unit: `useBoard.test.tsx` — happy path (GET on mount), PATCH on card move (mocked fetch), optimistic rollback on 500.
-  - [ ] Update `KanbanBoard.test.tsx` to mock `/api/board` response; assert initial render waits for data.
-  - [ ] Playwright `tests/kanban.spec.ts` continues to pass against the static-export container. Add a new spec `tests/persistence.spec.ts` that: logs in, adds a card, reloads the page, asserts the card is still there, then deletes it and reloads to confirm removal.
+- [x] `src/lib/board.ts` — typed wrappers on `apiFetch`: `getBoard()`, `renameColumn(id, title)`, `createCard(columnId, title, details)`, `patchCard(id, patch)`, `deleteCard(id)`. Card paths URL-encode the id; PATCH/POST send only the supplied fields.
+- [x] `src/lib/useBoard.ts` — owns `BoardData`, exposes `{ board, loading, error, dismissError, reload, actions }`.
+  - Loads on mount; sets `loading=false` and `error` from the response.
+  - `actions.createCard` POSTs first and only mutates state with the server's id on success (avoids optimistic-id mismatches); errors snap back to the pre-call snapshot and surface a friendly message.
+  - `actions.moveCard` is fully optimistic: reorders the column locally then PATCHes `{ column_id, position }`; rollback on failure.
+  - `actions.deleteCard` removes the card locally, DELETEs in the background, restores the snapshot if the call fails.
+  - `actions.renameColumn` updates the title locally on every keystroke and **debounces** the PATCH by 350 ms so a flurry of edits collapses to one request. A failed PATCH (or a blank title at flush time) restores the snapshot.
+- [x] `src/components/Toast.tsx` — minimal `role="status"` toast used for board errors. `data-testid="board-error-toast"`, dismiss button labelled `Dismiss notification`.
+- [x] `KanbanBoard.tsx` is now **purely presentational**: `{ board, loading, error, onDismissError, actions, onLogout? }`. Renders a `[data-testid="board-loading"]` placeholder while `loading || !board`, otherwise the full Kanban + toast.
+- [x] `KanbanColumn.tsx` carries `data-column-title={column.title}` so e2e specs can target columns by title (the column id is now a server-assigned UUID).
+- [x] `src/app/page.tsx` wires `useBoard()` and feeds the props through to `<KanbanBoard>`.
+- [x] Tests:
+  - [x] `src/lib/board.test.ts` (6 cases): URL + method + body shape for each verb, 204 → null on delete, URL-encoded ids.
+  - [x] `src/lib/useBoard.test.tsx` (9 cases): initial load happy/error, createCard happy + 500 rollback, moveCard happy + rollback, deleteCard happy, renameColumn debounce + rollback, `dismissError`.
+  - [x] `src/components/KanbanBoard.test.tsx` rewritten against the new props API (9 cases): loading placeholder, column count, rename/create/delete callbacks, error toast + dismiss, logout visibility/click.
+  - [x] `src/app/page.test.tsx` — page test now also stubs `/api/board` so the board renders.
+  - [x] `tests/kanban.spec.ts` — selectors switched to `data-column-title="…"` + visible card text. `Add card` test uses a unique title per run.
+  - [x] New `tests/persistence.spec.ts` (2 cases): create card → reload → still there → delete → reload → gone; rename column → reload → renamed (and best-effort restore at the end).
+  - [x] `playwright.static.config.ts` stamps `DB_PATH` with `pm-e2e-${Date.now()}.db` so each run gets a freshly seeded database.
 
 ### Tests / checks
 
-- All Vitest + Playwright suites pass.
-- Manual: open two browsers logged in as the same user, make a change in one, refresh the other, the change is there.
+- [x] `cd frontend && npm run test:unit -- --run` — 42/42 (was 23/23 after Part 6).
+- [x] `cd frontend && npm run lint` — 0 errors, 0 warnings.
+- [x] `cd backend && uv run pytest` — 58/58 still green (no regressions).
+- [x] `cd frontend && npm run build` — clean static export.
+- [x] `cd frontend && npx playwright test --config=playwright.static.config.ts` — 11/11 e2e (6 auth + 3 board + 2 persistence) in ~8 s against a fresh DB.
+- [x] Container smoke (`scripts/start.ps1`):
+  - Login, add a card via the UI, hard reload → card present.
+  - Drag a card across columns → reload → card stays in the new column.
+  - Delete the new card → reload → gone.
+  - Rename a column → reload → name persists.
+
+### Notable design decisions
+
+- **Pessimistic create, optimistic move/delete/rename.** Cards need a server id before they can be referenced (drag/delete), so `createCard` waits for the POST response. Move and delete don't need a new id, so they snap immediately with rollback on failure. Rename is the same family but debounced because it fires on every keystroke.
+- **Friendly errors over raw HTTP.** `messageFor()` prefers `ApiError.detail` (FastAPI's `HTTPException` payload), falls back to `error.message`, then a hand-written sentence per action. The toast surfaces it; `dismissError()` clears it.
+- **`data-column-title` instead of `data-testid` for e2e.** Column ids are server UUIDs now, so tests can't hard-code `column-col-review`. Adding the title attribute keeps Playwright selectors stable across runs and reseeds.
 
 ### Success criteria
 
-- No call to `initialData` remains in production code paths (only in tests, if at all).
-- Drag, rename, add, delete all round-trip through the API and survive reload.
-- Optimistic updates feel instant; errors surface without losing the UI.
+- No call to `initialData` remains on the rendered path (it's still exported from `lib/kanban.ts` for type re-use, but never imported by `page.tsx` / `KanbanBoard.tsx`).
+- Drag, rename, add, delete all round-trip through the API and survive a hard reload.
+- Optimistic updates feel instant; errors surface in a toast without losing the UI.
 
 ---
 

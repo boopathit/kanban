@@ -13,14 +13,27 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
-import { createId, initialData, moveCard, type BoardData } from "@/lib/kanban";
+import { Toast } from "@/components/Toast";
+import type { BoardData } from "@/lib/kanban";
+import type { BoardActions } from "@/lib/useBoard";
 
 type KanbanBoardProps = {
+  board: BoardData | null;
+  loading: boolean;
+  error?: string | null;
+  onDismissError?: () => void;
+  actions: BoardActions;
   onLogout?: () => void | Promise<void>;
 };
 
-export const KanbanBoard = ({ onLogout }: KanbanBoardProps = {}) => {
-  const [board, setBoard] = useState<BoardData>(() => initialData);
+export const KanbanBoard = ({
+  board,
+  loading,
+  error,
+  onDismissError,
+  actions,
+  onLogout,
+}: KanbanBoardProps) => {
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -29,7 +42,7 @@ export const KanbanBoard = ({ onLogout }: KanbanBoardProps = {}) => {
     })
   );
 
-  const cardsById = useMemo(() => board.cards, [board.cards]);
+  const cardsById = useMemo(() => board?.cards ?? {}, [board?.cards]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveCardId(event.active.id as string);
@@ -39,59 +52,30 @@ export const KanbanBoard = ({ onLogout }: KanbanBoardProps = {}) => {
     const { active, over } = event;
     setActiveCardId(null);
 
-    if (!over || active.id === over.id) {
+    if (!board || !over || active.id === over.id) {
       return;
     }
 
-    setBoard((prev) => ({
-      ...prev,
-      columns: moveCard(prev.columns, active.id as string, over.id as string),
-    }));
+    const activeId = active.id as string;
+    const overId = over.id as string;
+    const target = resolveDropTarget(board, activeId, overId);
+    if (!target) return;
+
+    void actions.moveCard(activeId, target.columnId, target.index);
   };
 
-  const handleRenameColumn = (columnId: string, title: string) => {
-    setBoard((prev) => ({
-      ...prev,
-      columns: prev.columns.map((column) =>
-        column.id === columnId ? { ...column, title } : column
-      ),
-    }));
-  };
-
-  const handleAddCard = (columnId: string, title: string, details: string) => {
-    const id = createId("card");
-    setBoard((prev) => ({
-      ...prev,
-      cards: {
-        ...prev.cards,
-        [id]: { id, title, details: details || "No details yet." },
-      },
-      columns: prev.columns.map((column) =>
-        column.id === columnId
-          ? { ...column, cardIds: [...column.cardIds, id] }
-          : column
-      ),
-    }));
-  };
-
-  const handleDeleteCard = (columnId: string, cardId: string) => {
-    setBoard((prev) => {
-      return {
-        ...prev,
-        cards: Object.fromEntries(
-          Object.entries(prev.cards).filter(([id]) => id !== cardId)
-        ),
-        columns: prev.columns.map((column) =>
-          column.id === columnId
-            ? {
-                ...column,
-                cardIds: column.cardIds.filter((id) => id !== cardId),
-              }
-            : column
-        ),
-      };
-    });
-  };
+  if (loading || !board) {
+    return (
+      <main
+        className="flex min-h-screen items-center justify-center"
+        data-testid="board-loading"
+      >
+        <p className="text-sm font-medium uppercase tracking-[0.3em] text-[var(--gray-text)]">
+          Loading board...
+        </p>
+      </main>
+    );
+  }
 
   const activeCard = activeCardId ? cardsById[activeCardId] : null;
 
@@ -162,10 +146,16 @@ export const KanbanBoard = ({ onLogout }: KanbanBoardProps = {}) => {
               <KanbanColumn
                 key={column.id}
                 column={column}
-                cards={column.cardIds.map((cardId) => board.cards[cardId])}
-                onRename={handleRenameColumn}
-                onAddCard={handleAddCard}
-                onDeleteCard={handleDeleteCard}
+                cards={column.cardIds
+                  .map((cardId) => board.cards[cardId])
+                  .filter((card): card is NonNullable<typeof card> => Boolean(card))}
+                onRename={(id, title) => void actions.renameColumn(id, title)}
+                onAddCard={(id, title, details) =>
+                  void actions.createCard(id, title, details)
+                }
+                onDeleteCard={(_columnId, cardId) =>
+                  void actions.deleteCard(cardId)
+                }
               />
             ))}
           </section>
@@ -178,6 +168,45 @@ export const KanbanBoard = ({ onLogout }: KanbanBoardProps = {}) => {
           </DragOverlay>
         </DndContext>
       </main>
+
+      {error ? (
+        <Toast message={error} onDismiss={onDismissError} variant="error" />
+      ) : null}
     </div>
   );
 };
+
+function resolveDropTarget(
+  board: BoardData,
+  activeId: string,
+  overId: string
+): { columnId: string; index: number } | null {
+  // Dropped on a column itself → append to the end.
+  const columnDirect = board.columns.find((c) => c.id === overId);
+  if (columnDirect) {
+    return {
+      columnId: columnDirect.id,
+      index: columnDirect.cardIds.filter((id) => id !== activeId).length,
+    };
+  }
+  // Dropped on a card → insert at that card's index in its column.
+  for (const column of board.columns) {
+    const overIdx = column.cardIds.indexOf(overId);
+    if (overIdx !== -1) {
+      const sourceColumn = board.columns.find((c) =>
+        c.cardIds.includes(activeId)
+      );
+      const sameColumn = sourceColumn?.id === column.id;
+      if (sameColumn) {
+        const without = column.cardIds.filter((id) => id !== activeId);
+        const targetIdx = without.indexOf(overId);
+        return {
+          columnId: column.id,
+          index: targetIdx === -1 ? without.length : targetIdx,
+        };
+      }
+      return { columnId: column.id, index: overIdx };
+    }
+  }
+  return null;
+}

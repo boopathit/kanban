@@ -30,6 +30,7 @@ export const KanbanColumn = ({
         isOver && "ring-2 ring-[var(--accent-yellow)]"
       )}
       data-testid={`column-${column.id}`}
+      data-column-title={column.title}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="w-full">

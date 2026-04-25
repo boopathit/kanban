@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 test.beforeEach(async ({ context, request }) => {
   await context.clearCookies();
@@ -17,28 +17,43 @@ test.beforeEach(async ({ context, request }) => {
   await context.addCookies(cookies.cookies);
 });
 
-test("loads the kanban board", async ({ page }) => {
+const columnByTitle = (page: Page, title: string) =>
+  page.locator(`[data-column-title="${title}"]`);
+
+const cardByTitle = (page: Page, title: string) =>
+  page.locator('[data-testid^="card-"]', { hasText: title }).first();
+
+test("loads the kanban board with the seeded columns", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Kanban Studio" })).toBeVisible();
   await expect(page.locator('[data-testid^="column-"]')).toHaveCount(5);
+  for (const title of ["Backlog", "Discovery", "In Progress", "Review", "Done"]) {
+    await expect(columnByTitle(page, title)).toBeVisible();
+  }
+  await expect(
+    page.getByRole("heading", { name: "Kanban Studio", exact: true })
+  ).toBeVisible();
 });
 
-test("adds a card to a column", async ({ page }) => {
+test("adds a card to the Backlog column", async ({ page }) => {
   await page.goto("/");
-  const firstColumn = page.locator('[data-testid^="column-"]').first();
-  await firstColumn.getByRole("button", { name: /add a card/i }).click();
-  await firstColumn.getByPlaceholder("Card title").fill("Playwright card");
-  await firstColumn.getByPlaceholder("Details").fill("Added via e2e.");
-  await firstColumn.getByRole("button", { name: /add card/i }).click();
-  await expect(firstColumn.getByText("Playwright card")).toBeVisible();
+  const backlog = columnByTitle(page, "Backlog");
+  await expect(backlog).toBeVisible();
+  await backlog.getByRole("button", { name: /add a card/i }).click();
+  const title = `Playwright card ${Date.now().toString(36)}`;
+  await backlog.getByPlaceholder("Card title").fill(title);
+  await backlog.getByPlaceholder("Details").fill("Added via e2e.");
+  await backlog.getByRole("button", { name: /add card/i }).click();
+  await expect(backlog.getByText(title)).toBeVisible();
 });
 
-test("moves a card between columns", async ({ page }) => {
+test("moves a seeded card from Backlog into Review", async ({ page }) => {
   await page.goto("/");
-  const card = page.getByTestId("card-card-1");
-  const targetColumn = page.getByTestId("column-col-review");
+  const card = cardByTitle(page, "Align roadmap themes");
+  const review = columnByTitle(page, "Review");
+
+  await card.scrollIntoViewIfNeeded();
   const cardBox = await card.boundingBox();
-  const columnBox = await targetColumn.boundingBox();
+  const columnBox = await review.boundingBox();
   if (!cardBox || !columnBox) {
     throw new Error("Unable to resolve drag coordinates.");
   }
@@ -54,5 +69,8 @@ test("moves a card between columns", async ({ page }) => {
     { steps: 12 }
   );
   await page.mouse.up();
-  await expect(targetColumn.getByTestId("card-card-1")).toBeVisible();
+
+  await expect(
+    review.locator('[data-testid^="card-"]', { hasText: "Align roadmap themes" })
+  ).toBeVisible();
 });
