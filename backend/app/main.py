@@ -2,7 +2,7 @@ from fastapi import FastAPI
 
 from app.config import Settings, get_settings
 from app.db import init_db, make_engine, make_session_factory
-from app.routes import auth, board, health
+from app.routes import ai, auth, board, health
 from app.static import SPAStaticFiles
 
 
@@ -24,6 +24,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(auth.router)
+    app.include_router(ai.router)
     app.include_router(board.router)
 
     settings.STATIC_DIR.mkdir(parents=True, exist_ok=True)

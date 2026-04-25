@@ -26,6 +26,9 @@ dev = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-q"
+markers = [
+    "live: calls real OpenRouter (requires OPENROUTER_API_KEY in the environment)",
+]
 
 [tool.coverage.run]
 source = ["app"]

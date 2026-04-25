@@ -12,6 +12,7 @@ backend/
     __init__.py
     main.py              create_app() factory; builds engine, runs init_db(), mounts routers + SPAStaticFiles
     config.py            Settings (pydantic-settings): SESSION_SECRET, OPENROUTER_API_KEY, DB_PATH, STATIC_DIR
+    openrouter.py        Async OpenRouter client: `chat()` POSTs chat completions; `OpenRouterError` + `assistant_text()` (Part 8)
     static.py            SPAStaticFiles: StaticFiles subclass with SPA fallback
     auth.py              JWT cookie auth (Part 4)
     db.py                SQLAlchemy engine, session factory, idempotent init_db() + seed (Part 6)
@@ -24,6 +25,7 @@ backend/
       __init__.py
       health.py          GET /api/health -> {"status": "ok"}
       auth.py            POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me (Part 4)
+      ai.py              POST /api/ai/ping — auth-gated OpenRouter 2+2 smoke (Part 8)
       board.py           GET /api/board, PATCH /api/columns/{id}, POST/PATCH/DELETE /api/cards (Part 6)
   static/
     index.html           Local-dev fallback served at / when running uvicorn directly
@@ -37,6 +39,7 @@ backend/
     test_auth.py
     test_db_init.py        Schema, PRAGMAs, idempotent seed, cascade-on-user-delete (Part 6)
     test_board.py          Wire contract, CRUD, moves/repack, cross-user isolation, 401/404 cases (Part 6)
+    test_openrouter.py     OpenRouter `chat()` + `/api/ai/ping` (respx + optional `@pytest.mark.live`) (Part 8)
 ```
 
 ## Configuration
@@ -55,6 +58,7 @@ All config is loaded by `pydantic-settings` from environment variables (case-ins
 ## Routes
 
 - `GET /api/health` — liveness probe; used by the start scripts and the Docker `HEALTHCHECK`.
+- `POST /api/ai/ping` — **auth required** (session cookie). JSON body must be `{}`. Calls OpenRouter `openai/gpt-oss-120b` with a fixed 2+2 prompt; `200 {"answer": "…"}`. Returns `503` when `OPENROUTER_API_KEY` is unset/blank, `502` on upstream failure or empty model text. Never returns raw provider error bodies to the client.
 - `GET /` and `GET /<path>` — served from `STATIC_DIR` via `SPAStaticFiles` (a `StaticFiles` subclass). Behaviour:
   - Existing files are served as-is (HTML, JS, CSS, fonts, etc.).
   - An extensionless path with no matching file (e.g. `/login`, `/projects/123`) falls back to `index.html` so the frontend's client-side router can take over.
@@ -90,7 +94,6 @@ Tests build their own `Settings` + `TestClient` via `conftest.py`, with a temp `
 
 ## Notes for later parts
 
-- Part 8 will add `app/openrouter.py` and `app/routes/ai.py`.
 - Part 9 will add a conversation router using the `conversations` + `messages` tables already declared in `app/models.py`.
 - The `SPAStaticFiles` mount currently sits at `/`. Because routers are added BEFORE the static mount in `create_app`, all `/api/*` routes still take precedence — keep that order when adding new routers.
 
@@ -139,3 +142,8 @@ The session per request comes from `app/db_deps.get_db`, which reads `request.ap
 | `DELETE` | `/api/cards/{id}`        | — | `204`; remaining cards in the column are repacked. |
 
 Unauthenticated calls → `401`. Calls referencing a column/card not on the caller's board → `404`. Validation errors (blank title, negative position, unknown fields) → `422` from Pydantic.
+
+## OpenRouter (Part 8)
+
+- `app/openrouter.py` — `CHAT_COMPLETIONS_URL` = `https://openrouter.ai/api/v1/chat/completions`, default model `openai/gpt-oss-120b`. `chat()` uses a short-lived `httpx.AsyncClient` per call (MVP simplicity).
+- Live smoke: `RUN_OPENROUTER_LIVE=1 OPENROUTER_API_KEY=… uv run pytest -m live -q` runs `test_live_ai_ping_contains_four` against the real API. Without both, that test is **skipped** so normal `pytest` and CI do not spend quota.
