@@ -196,24 +196,27 @@ Propose the database schema, document it in `docs/schema.json` and `docs/db.md`,
 
 ### Substeps
 
-- [ ] Draft `docs/schema.json` — JSON document describing tables, columns, types, nullability, and foreign keys. Proposed tables:
+- [x] Draft `docs/schema.json` — JSON document describing tables, columns, types, nullability, foreign keys, indexes, conventions, seed plan, and the wire contract for `GET /api/board`. Tables proposed:
   - `users(id TEXT PK, username TEXT UNIQUE, created_at TEXT)`
   - `boards(id TEXT PK, user_id TEXT FK→users.id UNIQUE, created_at TEXT)` — UNIQUE enforces one board per user for MVP.
-  - `columns(id TEXT PK, board_id TEXT FK→boards.id, title TEXT, position INTEGER, created_at TEXT)` — `(board_id, position)` unique.
-  - `cards(id TEXT PK, column_id TEXT FK→columns.id, title TEXT, details TEXT, position INTEGER, created_at TEXT, updated_at TEXT)` — `(column_id, position)` unique.
-  - `conversations(id TEXT PK, user_id TEXT FK→users.id, created_at TEXT)`
+  - `columns(id TEXT PK, board_id TEXT FK→boards.id, title TEXT, position INTEGER, created_at TEXT)` — non-UNIQUE index on `(board_id, position)`; UNIQUE intentionally omitted (see `docs/db.md`).
+  - `cards(id TEXT PK, column_id TEXT FK→columns.id, title TEXT, details TEXT, position INTEGER, created_at TEXT, updated_at TEXT)` — non-UNIQUE index on `(column_id, position)`.
+  - `conversations(id TEXT PK, user_id TEXT FK→users.id UNIQUE, created_at TEXT)` — one rolling conversation per user.
   - `messages(id TEXT PK, conversation_id TEXT FK→conversations.id, role TEXT CHECK(role IN ('user','assistant','system')), content TEXT, created_at TEXT)`
-- [ ] Write `docs/db.md` — narrative: why these tables, why `position INTEGER` (gapped values, re-normalized on write), why TEXT ids (uuid4 hex), how the one-board-per-user constraint is enforced, how we'll seed columns on first login.
-- [ ] Present both files to the user for review.
+  - All FKs cascade ON DELETE; `PRAGMA foreign_keys = ON` is required per connection.
+- [x] Write `docs/db.md` — narrative covering: TEXT uuid4 ids, ISO-8601 UTC TEXT timestamps, contiguous (re-packed) `position` strategy and **why we deviate from PLAN.md by omitting `UNIQUE(column_id, position)`** for the MVP, cascade-delete semantics, idempotent seed plan keyed on `username = 'user'`, and the `GET /api/board` wire contract that matches `frontend/src/lib/kanban.ts#BoardData` byte-for-byte.
+- [x] Present both files to the user for review (this PR / chat).
+- [x] User reviews and approves — all five open questions answered "as proposed" (2026-04-25).
 
 ### Tests / checks
 
-- User reviews `docs/schema.json` and `docs/db.md` and approves.
+- User reviews `docs/schema.json` and `docs/db.md` and approves (no automated tests in this part — Part 6 will exercise the schema).
 
 ### Success criteria
 
-- Explicit user approval recorded in chat.
-- Schema proposal is self-consistent (every FK target exists; positions have a clear ordering contract).
+- [x] Explicit user approval recorded in chat (2026-04-25, "as proposed").
+- [x] Schema proposal is self-consistent (every FK target exists; positions have a clear ordering contract).
+- [x] Wire contract for `GET /api/board` matches the existing `BoardData` shape so Part 7 can swap state sources without touching the UI.
 
 ---
 
