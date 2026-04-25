@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>PM MVP - Hello</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+        background: #f7f8fb;
+        color: #032147;
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+      }
+      .card {
+        background: #fff;
+        border-radius: 16px;
+        padding: 32px 40px;
+        box-shadow: 0 18px 40px rgba(3, 33, 71, 0.12);
+        max-width: 520px;
+      }
+      h1 {
+        margin: 0 0 12px;
+        color: #032147;
+      }
+      p {
+        margin: 0;
+        color: #888;
+      }
+      code {
+        background: #f1f3f7;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      .ok {
+        color: #209dd7;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>PM MVP backend is running</h1>
+      <p>
+        FastAPI is serving this placeholder page. Try
+        <code>GET /api/health</code> for the JSON health check.
+      </p>
+      <p style="margin-top: 16px">
+        Status: <span id="status" class="ok">checking...</span>
+      </p>
+    </div>
+    <script>
+      fetch("/api/health")
+        .then((r) => r.json())
+        .then((d) => {
+          document.getElementById("status").textContent = d.status;
+        })
+        .catch(() => {
+          document.getElementById("status").textContent = "error";
+        });
+    </script>
+  </body>
+</html>

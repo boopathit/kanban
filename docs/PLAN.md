@@ -52,45 +52,39 @@ Stand up the container, the FastAPI app, and the start/stop scripts. Prove end-t
 
 ### Substeps
 
-- [ ] Create `backend/` skeleton:
-  - `backend/pyproject.toml` managed by `uv` (`uv init` style), Python 3.12.
-  - Dependencies: `fastapi`, `uvicorn[standard]`, `pydantic`, `pydantic-settings`, `sqlalchemy`, `python-jose[cryptography]`, `passlib[bcrypt]` (needed in Part 4 but add now), `httpx` (for OpenRouter later), `pytest`, `pytest-asyncio`, `pytest-cov`.
+- [x] Create `backend/` skeleton:
+  - `backend/pyproject.toml` managed by `uv`, Python 3.12.
+  - Dependencies: `fastapi`, `uvicorn[standard]`, `pydantic`, `pydantic-settings`, `sqlalchemy`, `python-jose[cryptography]`, `passlib[bcrypt]`, `httpx`; dev: `pytest`, `pytest-asyncio`, `pytest-cov`, `respx`.
   - `backend/app/__init__.py`, `backend/app/main.py` with `create_app()` factory.
-  - `backend/app/config.py` with `Settings` (pydantic-settings) reading `SESSION_SECRET`, `OPENROUTER_API_KEY`, `DB_PATH`, `STATIC_DIR`.
+  - `backend/app/config.py` with `Settings` reading `SESSION_SECRET`, `OPENROUTER_API_KEY`, `DB_PATH`, `STATIC_DIR`.
   - `backend/app/routes/health.py` → `GET /api/health` returns `{"status": "ok"}`.
   - Static mount: `StaticFiles(directory=settings.STATIC_DIR, html=True)` at `/`.
-  - Scaffolding-only placeholder `backend/static/index.html` ("Hello from FastAPI") so the container works before Part 3 exists.
-- [ ] Create `Dockerfile` at repo root, multi-stage:
-  - Stage 1 `node:22-alpine`: install frontend deps, run `npm run build` (will actually produce output only in Part 3; for now the stage is present but noop-safe — copy a placeholder `out/` if `frontend/out` does not exist).
-  - Stage 2 `python:3.12-slim` + `uv`: install backend deps with `uv sync --frozen`, copy `backend/`, copy `frontend/out/` (or the placeholder from Part 2) into `/app/static`, `CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]`.
-- [ ] Create `docker-compose.yml` at repo root:
-  - One service `app`, build context `.`, ports `"8000:8000"`, `env_file: .env`, restart `unless-stopped`.
-- [ ] Create `.dockerignore` excluding `node_modules`, `.next`, `frontend/out` (will be rebuilt inside the image), `__pycache__`, `.venv`, `.git`, `test-results`.
-- [ ] Create scripts:
-  - `scripts/start.sh`: `docker compose up -d --build` then wait for `/api/health`.
-  - `scripts/stop.sh`: `docker compose down`.
-  - `scripts/start.ps1`: PowerShell equivalent, with `Invoke-WebRequest` health check.
-  - `scripts/stop.ps1`: `docker compose down`.
-  - Make shell scripts executable (`chmod +x`) and document usage in `scripts/AGENTS.md`.
-- [ ] Write `backend/AGENTS.md` describing the module layout, config surface, and run/test commands.
-- [ ] Write backend tests:
-  - `backend/tests/test_health.py` — `GET /api/health` returns 200 + expected body using `TestClient`.
-  - `backend/tests/test_static.py` — `GET /` returns 200 and contains the placeholder string.
+  - Placeholder `backend/static/index.html` so the container works before Part 3 exists.
+- [x] Create `Dockerfile` at repo root. Single-stage `python:3.12-slim` + `uv` for Part 2 (no frontend build yet — the placeholder `backend/static/` is copied directly). Part 3 will add a `node:22-alpine` build stage that produces `frontend/out/` and replaces the static dir.
+- [x] Create `docker-compose.yml` at repo root: one `app` service, build context `.`, ports `"8000:8000"`, `env_file: .env`, restart `unless-stopped`.
+- [x] Create `.dockerignore` excluding `node_modules`, `.next`, `frontend/out`, `__pycache__`, `.venv`, `.git`, `docs/`, `terminals/`, `**/AGENTS.md`, `.env*` (except `.env.example`).
+- [x] Create `.env.example` documenting required env vars; `.env` itself is gitignored and is auto-created by `start` scripts on first run.
+- [x] Create scripts: `scripts/start.sh`, `scripts/stop.sh`, `scripts/start.ps1`, `scripts/stop.ps1`. Each `start` resolves the repo root from its own location, copies `.env.example` → `.env` if missing, runs `docker compose up -d --build`, then polls `/api/health` for 30 s. On timeout, dumps `app` logs.
+- [x] Write `backend/AGENTS.md` describing module layout, config surface, run/test commands.
+- [x] Write `scripts/AGENTS.md` describing scripts and usage.
+- [x] Write backend tests:
+  - `backend/tests/test_health.py` — `/api/health` returns 200 + body; `/health` (no prefix) returns 404.
+  - `backend/tests/test_static.py` — `/` returns 200 + placeholder string + `text/html`; unknown path returns 404.
 
 ### Tests / checks
 
-- `cd backend && uv run pytest` passes locally (no container needed for unit tests).
-- `bash scripts/start.sh` (or `scripts\start.ps1`) completes without error on a clean machine.
+- `cd backend && uv run pytest` passes (currently 4/4, 100 % coverage on `app/`).
+- `bash scripts/start.sh` (or `scripts\start.ps1`) completes without error on a clean machine. *(Manual verification — not run by the agent in this environment as Docker is not available in the agent shell; user to run.)*
 - `curl http://localhost:8000/api/health` returns `{"status":"ok"}` within 30 s of start.
 - `curl http://localhost:8000/` returns HTML containing the placeholder string.
 - `bash scripts/stop.sh` removes the container; `docker ps` shows it gone.
 
 ### Success criteria
 
-- All backend unit tests green.
-- Start script brings the stack up and health check passes.
-- Stop script brings it down cleanly.
-- `backend/AGENTS.md` and `scripts/AGENTS.md` reflect reality.
+- All backend unit tests green. *(done — 4/4)*
+- Start script brings the stack up and health check passes. *(pending user verification with Docker)*
+- Stop script brings it down cleanly. *(pending user verification)*
+- `backend/AGENTS.md` and `scripts/AGENTS.md` reflect reality. *(done)*
 
 ---
 
