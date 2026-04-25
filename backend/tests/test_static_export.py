@@ -27,6 +27,14 @@ def export_client(tmp_path: Path) -> TestClient:
         '<script src="/_next/static/chunks/main.js"></script></body></html>',
         encoding="utf-8",
     )
+    # Mimic the Next.js export's own 404.html. Starlette's StaticFiles
+    # returns this with status 404 instead of raising HTTPException, so the
+    # SPA fallback must handle the response-is-404 case as well as the
+    # exception case.
+    (static_dir / "404.html").write_text(
+        '<!doctype html><html><body><h1>Next 404</h1></body></html>',
+        encoding="utf-8",
+    )
     settings = Settings(
         SESSION_SECRET="test",
         DB_PATH=tmp_path / "pm.db",
@@ -70,12 +78,23 @@ def test_spa_fallback_does_not_swallow_missing_assets(
     assert response.status_code == 404
 
 
+def test_spa_fallback_wins_over_starlette_404_html(
+    export_client: TestClient,
+) -> None:
+    """For SPA routes, prefer index.html even if a 404.html exists."""
+    response = export_client.get("/login")
+    assert response.status_code == 200
+    assert "Kanban Studio" in response.text
+    assert "Next 404" not in response.text
+
+
 def test_api_404_is_not_overridden_by_spa_fallback(
     export_client: TestClient,
 ) -> None:
     response = export_client.get("/api/does-not-exist")
     assert response.status_code == 404
     assert "Kanban Studio" not in response.text
+    assert "Next 404" not in response.text
 
 
 def test_health_still_wins_over_static_mount(export_client: TestClient) -> None:
