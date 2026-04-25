@@ -32,11 +32,14 @@ test.describe("auth flow", () => {
     await page.getByLabel(/password/i).fill("password");
     await page.getByTestId("login-submit").click();
 
-    await expect(
-      page.getByRole("heading", { name: "Kanban Studio" })
-    ).toBeVisible();
-    await expect(page.locator('[data-testid^="column-"]')).toHaveCount(5);
+    // Logout button only renders once auth + board both load — a stable signal
+    // that we've actually arrived on the board page (not just matching a
+    // substring on the login heading).
     await expect(page.getByTestId("logout-button")).toBeVisible();
+    await expect(page.locator('[data-testid^="column-"]')).toHaveCount(5);
+    await expect(
+      page.getByRole("heading", { name: "Kanban Studio", exact: true })
+    ).toBeVisible();
   });
 
   test("session survives a reload", async ({ page }) => {
@@ -44,14 +47,11 @@ test.describe("auth flow", () => {
     await page.getByLabel(/username/i).fill("user");
     await page.getByLabel(/password/i).fill("password");
     await page.getByTestId("login-submit").click();
-    await expect(
-      page.getByRole("heading", { name: "Kanban Studio" })
-    ).toBeVisible();
+    await expect(page.getByTestId("logout-button")).toBeVisible();
+    await expect(page).toHaveURL(/\/$/);
 
     await page.reload();
-    await expect(
-      page.getByRole("heading", { name: "Kanban Studio" })
-    ).toBeVisible();
+    await expect(page.getByTestId("logout-button")).toBeVisible();
     await expect(page).not.toHaveURL(/\/login$/);
   });
 

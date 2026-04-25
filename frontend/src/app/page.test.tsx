@@ -30,26 +30,30 @@ describe("Home (auth gate)", () => {
     vi.restoreAllMocks();
   });
 
+  const okJson = (payload: unknown) =>
+    new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  const handlerWithBoard = (url: string) => {
+    if (url.endsWith("/api/auth/me")) return okJson({ username: "user" });
+    if (url.endsWith("/api/board"))
+      return okJson({
+        columns: [{ id: "col-a", title: "Backlog", cardIds: [] }],
+        cards: {},
+      });
+    return new Response("not stubbed", { status: 500 });
+  };
+
   it("shows the checking-sign-in placeholder before /api/auth/me resolves", () => {
-    mockFetch(
-      () =>
-        new Response(JSON.stringify({ username: "user" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        })
-    );
+    mockFetch(handlerWithBoard);
     render(<Home />);
     expect(screen.getByTestId("auth-checking")).toBeInTheDocument();
   });
 
   it("renders the board after successful auth", async () => {
-    mockFetch(
-      () =>
-        new Response(JSON.stringify({ username: "user" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        })
-    );
+    mockFetch(handlerWithBoard);
     render(<Home />);
     expect(
       await screen.findByRole("heading", { name: /Kanban Studio/i })
@@ -75,16 +79,10 @@ describe("Home (auth gate)", () => {
     const calls: string[] = [];
     mockFetch((url) => {
       calls.push(url);
-      if (url.endsWith("/api/auth/me")) {
-        return new Response(JSON.stringify({ username: "user" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
       if (url.endsWith("/api/auth/logout")) {
         return new Response(null, { status: 204 });
       }
-      return new Response("not stubbed", { status: 500 });
+      return handlerWithBoard(url);
     });
 
     render(<Home />);
@@ -93,7 +91,11 @@ describe("Home (auth gate)", () => {
 
     await waitFor(() =>
       expect(calls).toEqual(
-        expect.arrayContaining(["/api/auth/me", "/api/auth/logout"])
+        expect.arrayContaining([
+          "/api/auth/me",
+          "/api/board",
+          "/api/auth/logout",
+        ])
       )
     );
     expect(replaceMock).toHaveBeenCalledWith("/login");
