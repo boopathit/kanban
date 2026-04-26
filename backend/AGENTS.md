@@ -61,7 +61,7 @@ All config is loaded by `pydantic-settings` from environment variables (case-ins
 ## Routes
 
 - `GET /api/health` — liveness probe; used by the start scripts and the Docker `HEALTHCHECK`.
-- `POST /api/ai/ping` — **auth required** (session cookie). JSON body must be `{}`. Calls OpenRouter `openai/gpt-oss-120b` with a fixed 2+2 prompt; `200 {"answer": "…"}`. Returns `503` when `OPENROUTER_API_KEY` is unset/blank, `502` on upstream failure or empty model text. Never returns raw provider error bodies to the client.
+- `POST /api/ai/ping` — **auth required** (session cookie). JSON body must be `{}`. Calls OpenRouter `openai/gpt-oss-120b:free` with a fixed 2+2 prompt; `200 {"answer": "…"}`. Returns `503` when `OPENROUTER_API_KEY` is unset/blank, `502` on upstream failure or empty model text. Never returns raw provider error bodies to the client.
 - `POST /api/chat` — **auth required**. Body `{message}`. Appends user message, sends recent history + board JSON to OpenRouter with strict JSON schema response format, appends assistant reply, and (optionally) applies board operations transactionally. Returns `{reply, applied_ops, updated_board?, op_error?}`.
 - `GET /api/chat/history` — **auth required**. Returns last 30 persisted messages for the user's single conversation.
 - `GET /` and `GET /<path>` — served from `STATIC_DIR` via `SPAStaticFiles` (a `StaticFiles` subclass). Behaviour:
@@ -149,7 +149,7 @@ Unauthenticated calls → `401`. Calls referencing a column/card not on the call
 
 ## OpenRouter (Part 8)
 
-- `app/openrouter.py` — `CHAT_COMPLETIONS_URL` = `https://openrouter.ai/api/v1/chat/completions`, default model `openai/gpt-oss-120b`. `chat()` uses a short-lived `httpx.AsyncClient` per call (MVP simplicity).
+- `app/openrouter.py` — `CHAT_COMPLETIONS_URL` = `https://openrouter.ai/api/v1/chat/completions`, default model `openai/gpt-oss-120b:free`. `chat()` uses a short-lived `httpx.AsyncClient` per call (MVP simplicity).
 - Live smoke: `RUN_OPENROUTER_LIVE=1 OPENROUTER_API_KEY=… uv run pytest -m live -q` runs `test_live_ai_ping_contains_four` against the real API. Without both, that test is **skipped** so normal `pytest` and CI do not spend quota.
 
 ## Chat orchestration (Part 9)

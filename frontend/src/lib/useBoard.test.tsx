@@ -213,4 +213,17 @@ describe("useBoard", () => {
     act(() => result.current.dismissError());
     expect(result.current.error).toBeNull();
   });
+
+  it("accepts an externally provided board snapshot via setBoard", async () => {
+    installFetch(async () => json(SEED));
+    const { result } = renderHook(() => useBoard());
+    await vi.waitFor(() => expect(result.current.board).not.toBeNull());
+
+    const updated: BoardData = {
+      ...SEED,
+      columns: [{ ...SEED.columns[0], title: "Inbox" }, SEED.columns[1]],
+    };
+    act(() => result.current.setBoard(updated));
+    expect(result.current.board?.columns[0].title).toBe("Inbox");
+  });
 });

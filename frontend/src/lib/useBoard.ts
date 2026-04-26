@@ -45,6 +45,7 @@ export type UseBoardResult = {
   error: string | null;
   dismissError: () => void;
   reload: () => Promise<void>;
+  setBoard: (next: BoardData) => void;
   actions: BoardActions;
 };
 
@@ -67,6 +68,9 @@ export function useBoard(): UseBoardResult {
   }, []);
 
   const dismissError = useCallback(() => setError(null), []);
+  const setBoardSnapshot = useCallback((next: BoardData) => {
+    setBoard(next);
+  }, []);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -235,6 +239,7 @@ export function useBoard(): UseBoardResult {
     error,
     dismissError,
     reload,
+    setBoard: setBoardSnapshot,
     actions: { renameColumn, createCard, moveCard, deleteCard },
   };
 }

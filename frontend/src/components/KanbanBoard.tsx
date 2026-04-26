@@ -13,6 +13,7 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
+import { ChatSidebar } from "@/components/ChatSidebar";
 import { Toast } from "@/components/Toast";
 import type { BoardData } from "@/lib/kanban";
 import type { BoardActions } from "@/lib/useBoard";
@@ -22,6 +23,7 @@ type KanbanBoardProps = {
   loading: boolean;
   error?: string | null;
   onDismissError?: () => void;
+  setBoard: (board: BoardData) => void;
   actions: BoardActions;
   onLogout?: () => void | Promise<void>;
 };
@@ -31,6 +33,7 @@ export const KanbanBoard = ({
   loading,
   error,
   onDismissError,
+  setBoard,
   actions,
   onLogout,
 }: KanbanBoardProps) => {
@@ -135,38 +138,43 @@ export const KanbanBoard = ({
           </div>
         </header>
 
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCorners}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <section className="grid gap-6 lg:grid-cols-5">
-            {board.columns.map((column) => (
-              <KanbanColumn
-                key={column.id}
-                column={column}
-                cards={column.cardIds
-                  .map((cardId) => board.cards[cardId])
-                  .filter((card): card is NonNullable<typeof card> => Boolean(card))}
-                onRename={(id, title) => void actions.renameColumn(id, title)}
-                onAddCard={(id, title, details) =>
-                  void actions.createCard(id, title, details)
-                }
-                onDeleteCard={(_columnId, cardId) =>
-                  void actions.deleteCard(cardId)
-                }
-              />
-            ))}
-          </section>
-          <DragOverlay>
-            {activeCard ? (
-              <div className="w-[260px]">
-                <KanbanCardPreview card={activeCard} />
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
+        <div className="relative lg:flex lg:items-start lg:gap-6">
+          <div className="min-w-0 flex-1">
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCorners}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+            >
+              <section className="grid gap-6 lg:grid-cols-5">
+                {board.columns.map((column) => (
+                  <KanbanColumn
+                    key={column.id}
+                    column={column}
+                    cards={column.cardIds
+                      .map((cardId) => board.cards[cardId])
+                      .filter((card): card is NonNullable<typeof card> => Boolean(card))}
+                    onRename={(id, title) => void actions.renameColumn(id, title)}
+                    onAddCard={(id, title, details) =>
+                      void actions.createCard(id, title, details)
+                    }
+                    onDeleteCard={(_columnId, cardId) =>
+                      void actions.deleteCard(cardId)
+                    }
+                  />
+                ))}
+              </section>
+              <DragOverlay>
+                {activeCard ? (
+                  <div className="w-[260px]">
+                    <KanbanCardPreview card={activeCard} />
+                  </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
+          </div>
+          <ChatSidebar setBoard={setBoard} />
+        </div>
       </main>
 
       {error ? (
