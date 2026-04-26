@@ -13,6 +13,7 @@ backend/
     main.py              create_app() factory; builds engine, runs init_db(), mounts routers + SPAStaticFiles
     config.py            Settings (pydantic-settings): SESSION_SECRET, OPENROUTER_API_KEY, DB_PATH, STATIC_DIR
     openrouter.py        Async OpenRouter client: `chat()` POSTs chat completions; `OpenRouterError` + `assistant_text()` (Part 8)
+    ai_schema.py         Structured output schema + typed parser for chat replies (Part 9)
     static.py            SPAStaticFiles: StaticFiles subclass with SPA fallback
     auth.py              JWT cookie auth (Part 4)
     db.py                SQLAlchemy engine, session factory, idempotent init_db() + seed (Part 6)
@@ -21,11 +22,12 @@ backend/
     schemas.py           Pydantic request/response models for the board API (Part 6)
     services/
       board.py           Board reads/writes scoped to the authenticated user (Part 6)
+      chat.py            Conversation persistence + transactional board-op application (Part 9)
     routes/
       __init__.py
       health.py          GET /api/health -> {"status": "ok"}
       auth.py            POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me (Part 4)
-      ai.py              POST /api/ai/ping — auth-gated OpenRouter 2+2 smoke (Part 8)
+      ai.py              POST /api/ai/ping + POST /api/chat + GET /api/chat/history (Parts 8-9)
       board.py           GET /api/board, PATCH /api/columns/{id}, POST/PATCH/DELETE /api/cards (Part 6)
   static/
     index.html           Local-dev fallback served at / when running uvicorn directly
@@ -40,6 +42,7 @@ backend/
     test_db_init.py        Schema, PRAGMAs, idempotent seed, cascade-on-user-delete (Part 6)
     test_board.py          Wire contract, CRUD, moves/repack, cross-user isolation, 401/404 cases (Part 6)
     test_openrouter.py     OpenRouter `chat()` + `/api/ai/ping` (respx + optional `@pytest.mark.live`) (Part 8)
+    test_chat.py           Structured chat + history + transactional board updates (Part 9)
 ```
 
 ## Configuration
@@ -59,6 +62,8 @@ All config is loaded by `pydantic-settings` from environment variables (case-ins
 
 - `GET /api/health` — liveness probe; used by the start scripts and the Docker `HEALTHCHECK`.
 - `POST /api/ai/ping` — **auth required** (session cookie). JSON body must be `{}`. Calls OpenRouter `openai/gpt-oss-120b` with a fixed 2+2 prompt; `200 {"answer": "…"}`. Returns `503` when `OPENROUTER_API_KEY` is unset/blank, `502` on upstream failure or empty model text. Never returns raw provider error bodies to the client.
+- `POST /api/chat` — **auth required**. Body `{message}`. Appends user message, sends recent history + board JSON to OpenRouter with strict JSON schema response format, appends assistant reply, and (optionally) applies board operations transactionally. Returns `{reply, applied_ops, updated_board?, op_error?}`.
+- `GET /api/chat/history` — **auth required**. Returns last 30 persisted messages for the user's single conversation.
 - `GET /` and `GET /<path>` — served from `STATIC_DIR` via `SPAStaticFiles` (a `StaticFiles` subclass). Behaviour:
   - Existing files are served as-is (HTML, JS, CSS, fonts, etc.).
   - An extensionless path with no matching file (e.g. `/login`, `/projects/123`) falls back to `index.html` so the frontend's client-side router can take over.
@@ -94,7 +99,6 @@ Tests build their own `Settings` + `TestClient` via `conftest.py`, with a temp `
 
 ## Notes for later parts
 
-- Part 9 will add a conversation router using the `conversations` + `messages` tables already declared in `app/models.py`.
 - The `SPAStaticFiles` mount currently sits at `/`. Because routers are added BEFORE the static mount in `create_app`, all `/api/*` routes still take precedence — keep that order when adding new routers.
 
 ## Auth (Part 4)
@@ -147,3 +151,23 @@ Unauthenticated calls → `401`. Calls referencing a column/card not on the call
 
 - `app/openrouter.py` — `CHAT_COMPLETIONS_URL` = `https://openrouter.ai/api/v1/chat/completions`, default model `openai/gpt-oss-120b`. `chat()` uses a short-lived `httpx.AsyncClient` per call (MVP simplicity).
 - Live smoke: `RUN_OPENROUTER_LIVE=1 OPENROUTER_API_KEY=… uv run pytest -m live -q` runs `test_live_ai_ping_contains_four` against the real API. Without both, that test is **skipped** so normal `pytest` and CI do not spend quota.
+
+## Chat orchestration (Part 9)
+
+- `app/ai_schema.py` defines both:
+  - strict JSON schema object sent via OpenRouter `response_format={"type":"json_schema",...,"strict":true}`
+  - typed Pydantic parser (`parse_chat_model_json`) for runtime validation of assistant JSON.
+- Allowed operations are discriminated by `op`:
+  - `rename_column`
+  - `create_card`
+  - `delete_card`
+  - `update_card`
+- `app/services/chat.py` persists and reuses one conversation per user (`conversations.user_id` unique):
+  - `start_or_get_conversation`
+  - `append_message`
+  - `recent_messages(limit=30)` (ascending, capped)
+  - `build_system_prompt(board)` (embeds live board JSON)
+  - `apply_board_update` executes ops via Part-6 board service inside `session.begin_nested()` so multi-op updates are all-or-nothing.
+- Failure behavior:
+  - malformed/invalid assistant JSON -> `502` safe message, user message still persisted
+  - invalid cross-user/missing card/column in ops -> assistant reply still returned, `applied_ops=[]`, `op_error` populated, board unchanged.
