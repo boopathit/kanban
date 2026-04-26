@@ -26,7 +26,7 @@ export const KanbanColumn = ({
     <section
       ref={setNodeRef}
       className={clsx(
-        "flex min-h-[520px] flex-col rounded-3xl border border-[var(--stroke)] bg-[var(--surface-strong)] p-4 shadow-[var(--shadow)] transition",
+        "flex h-[calc(100vh-9.5rem)] min-h-[520px] flex-col rounded-3xl border border-[var(--stroke)] bg-[var(--surface-strong)] p-4 shadow-[var(--shadow)] transition",
         isOver && "ring-2 ring-[var(--accent-yellow)]"
       )}
       data-testid={`column-${column.id}`}
@@ -48,21 +48,23 @@ export const KanbanColumn = ({
           />
         </div>
       </div>
-      <div className="mt-4 flex flex-1 flex-col gap-3">
-        <SortableContext items={column.cardIds} strategy={verticalListSortingStrategy}>
-          {cards.map((card) => (
-            <KanbanCard
-              key={card.id}
-              card={card}
-              onDelete={(cardId) => onDeleteCard(column.id, cardId)}
-            />
-          ))}
-        </SortableContext>
-        {cards.length === 0 && (
-          <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-[var(--stroke)] px-3 py-6 text-center text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
-            Drop a card here
-          </div>
-        )}
+      <div className="mt-4 flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+          <SortableContext items={column.cardIds} strategy={verticalListSortingStrategy}>
+            {cards.map((card) => (
+              <KanbanCard
+                key={card.id}
+                card={card}
+                onDelete={(cardId) => onDeleteCard(column.id, cardId)}
+              />
+            ))}
+          </SortableContext>
+          {cards.length === 0 && (
+            <div className="flex min-h-[200px] items-center justify-center rounded-2xl border border-dashed border-[var(--stroke)] px-3 py-6 text-center text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
+              Drop a card here
+            </div>
+          )}
+        </div>
       </div>
       <NewCardForm
         onAdd={(title, details) => onAddCard(column.id, title, details)}
