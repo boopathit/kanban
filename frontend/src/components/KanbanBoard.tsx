@@ -1,14 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  type CollisionDetection,
   DndContext,
   DragOverlay,
   PointerSensor,
+  pointerWithin,
+  rectIntersection,
+  type DragOverEvent,
   useSensor,
   useSensors,
-  closestCorners,
   type DragEndEvent,
+  type DragCancelEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
@@ -38,6 +42,10 @@ export const KanbanBoard = ({
   onLogout,
 }: KanbanBoardProps) => {
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
+  const [dropColumnId, setDropColumnId] = useState<string | null>(null);
+  const [previewBoard, setPreviewBoard] = useState<BoardData | null>(null);
+  const dragOverRafRef = useRef<number | null>(null);
+  const dragOverPendingRef = useRef<DragOverEvent | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -45,29 +53,124 @@ export const KanbanBoard = ({
     })
   );
 
-  const cardsById = useMemo(() => board?.cards ?? {}, [board?.cards]);
+  const displayBoard = previewBoard ?? board;
+  const displayBoardRef = useRef<BoardData | null>(displayBoard);
+  useEffect(() => {
+    displayBoardRef.current = displayBoard;
+  }, [displayBoard]);
+
+  const cardsById = useMemo(() => displayBoard?.cards ?? {}, [displayBoard?.cards]);
+  const collisionDetection = useMemo<CollisionDetection>(
+    () => (args) => {
+      // Prefer pointer-based hit-testing so the entire droppable area of each
+      // column responds, not only positions close to card corners.
+      const pointerHits = pointerWithin(args);
+      if (pointerHits.length > 0) return pointerHits;
+      return rectIntersection(args);
+    },
+    []
+  );
+
+  const flushDragOverRaf = useCallback(() => {
+    if (dragOverRafRef.current != null) {
+      cancelAnimationFrame(dragOverRafRef.current);
+      dragOverRafRef.current = null;
+    }
+    dragOverPendingRef.current = null;
+  }, []);
+
+  useEffect(() => flushDragOverRaf, [flushDragOverRaf]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveCardId(event.active.id as string);
+    setPreviewBoard(null);
+  };
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    dragOverPendingRef.current = event;
+    if (dragOverRafRef.current != null) return;
+    dragOverRafRef.current = requestAnimationFrame(() => {
+      dragOverRafRef.current = null;
+      const pending = dragOverPendingRef.current;
+      dragOverPendingRef.current = null;
+      if (!pending) return;
+
+      const liveBoard = displayBoardRef.current;
+      if (!liveBoard) {
+        setDropColumnId(null);
+        setPreviewBoard(null);
+        return;
+      }
+      if (!pending.over) {
+        // Keep the last valid preview target; dnd-kit can briefly report no
+        // collision while crossing gaps between children.
+        return;
+      }
+
+      const target = resolveDropTarget(
+        liveBoard,
+        pending.active.id as string,
+        pending.over.id as string
+      );
+      setDropColumnId(target?.columnId ?? null);
+      if (!target) {
+        setPreviewBoard(null);
+        return;
+      }
+      startTransition(() => {
+        setPreviewBoard(applyPreviewMove(liveBoard, pending.active.id as string, target));
+      });
+    });
+  }, []);
+
+  const handleDragCancel = (_event: DragCancelEvent) => {
+    flushDragOverRaf();
+    setActiveCardId(null);
+    setDropColumnId(null);
+    setPreviewBoard(null);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
+    flushDragOverRaf();
     const { active, over } = event;
     setActiveCardId(null);
+    setDropColumnId(null);
+    const baseBoard = board;
+    setPreviewBoard(null);
 
-    if (!board || !over || active.id === over.id) {
+    if (!baseBoard) {
       return;
     }
 
     const activeId = active.id as string;
+
+    if (previewBoard) {
+      const before = findCardLocation(baseBoard, activeId);
+      const after = findCardLocation(previewBoard, activeId);
+      if (after && (!before || before.columnId !== after.columnId || before.index !== after.index)) {
+        void actions.moveCard(activeId, after.columnId, after.index);
+        return;
+      }
+    }
+
+    if (!over) {
+      return;
+    }
+
+    const nextBoard = previewBoard ?? baseBoard;
     const overId = over.id as string;
-    const target = resolveDropTarget(board, activeId, overId);
+
+    if (active.id === over.id) {
+      return;
+    }
+
+    const target = resolveDropTarget(nextBoard, activeId, overId);
     if (!target) return;
 
     void actions.moveCard(activeId, target.columnId, target.index);
   };
 
-  if (loading || !board) {
+  if (loading || !displayBoard) {
     return (
       <main
         className="flex min-h-screen items-center justify-center"
@@ -126,7 +229,7 @@ export const KanbanBoard = ({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4">
-            {board.columns.map((column) => (
+            {displayBoard.columns.map((column) => (
               <div
                 key={column.id}
                 className="flex items-center gap-2 rounded-full border border-[var(--stroke)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--navy-dark)]"
@@ -140,23 +243,26 @@ export const KanbanBoard = ({
 
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCorners}
+          collisionDetection={collisionDetection}
           onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragCancel={handleDragCancel}
           onDragEnd={handleDragEnd}
         >
           <section className="grid gap-6 lg:grid-cols-5">
-            {board.columns.map((column) => (
+            {displayBoard.columns.map((column) => (
               <KanbanColumn
                 key={column.id}
                 column={column}
                 cards={column.cardIds
-                  .map((cardId) => board.cards[cardId])
+                  .map((cardId) => displayBoard.cards[cardId])
                   .filter((card): card is NonNullable<typeof card> => Boolean(card))}
                 onRename={(id, title) => void actions.renameColumn(id, title)}
                 onAddCard={(id, title, details) =>
                   void actions.createCard(id, title, details)
                 }
                 onDeleteCard={(_columnId, cardId) => void actions.deleteCard(cardId)}
+                isDropTarget={dropColumnId === column.id}
               />
             ))}
           </section>
@@ -179,37 +285,96 @@ export const KanbanBoard = ({
   );
 };
 
-function resolveDropTarget(
+export function resolveDropTarget(
   board: BoardData,
   activeId: string,
   overId: string
 ): { columnId: string; index: number } | null {
-  // Dropped on a column itself → append to the end.
-  const columnDirect = board.columns.find((c) => c.id === overId);
-  if (columnDirect) {
-    return {
-      columnId: columnDirect.id,
-      index: columnDirect.cardIds.filter((id) => id !== activeId).length,
-    };
+  // Keep this intentionally simple:
+  // - over a column => append to end
+  // - over a card   => insert at that card index
+  const directColumn = board.columns.find((column) => column.id === overId);
+  if (directColumn) {
+    const existing = directColumn.cardIds.filter((id) => id !== activeId);
+    return { columnId: directColumn.id, index: existing.length };
   }
-  // Dropped on a card → insert at that card's index in its column.
+
   for (const column of board.columns) {
-    const overIdx = column.cardIds.indexOf(overId);
-    if (overIdx !== -1) {
-      const sourceColumn = board.columns.find((c) =>
-        c.cardIds.includes(activeId)
-      );
-      const sameColumn = sourceColumn?.id === column.id;
-      if (sameColumn) {
-        const without = column.cardIds.filter((id) => id !== activeId);
-        const targetIdx = without.indexOf(overId);
-        return {
-          columnId: column.id,
-          index: targetIdx === -1 ? without.length : targetIdx,
-        };
-      }
-      return { columnId: column.id, index: overIdx };
+    const targetIndex = column.cardIds.indexOf(overId);
+    if (targetIndex !== -1) {
+      return { columnId: column.id, index: targetIndex };
+    }
+  }
+
+  return null;
+}
+
+export function applyPreviewMove(
+  board: BoardData,
+  cardId: string,
+  target: { columnId: string; index: number }
+): BoardData {
+  const sourceColumn = board.columns.find((column) => column.cardIds.includes(cardId));
+  const destinationColumn = board.columns.find((column) => column.id === target.columnId);
+  if (!sourceColumn || !destinationColumn) {
+    return board;
+  }
+
+  const sourceWithout = sourceColumn.cardIds.filter((id) => id !== cardId);
+  const destinationBase =
+    sourceColumn.id === destinationColumn.id
+      ? sourceWithout
+      : [...destinationColumn.cardIds];
+  const insertIndex = Math.max(0, Math.min(target.index, destinationBase.length));
+  const nextDestination = [...destinationBase];
+  nextDestination.splice(insertIndex, 0, cardId);
+
+  const nextColumns = board.columns.map((column) => {
+    if (sourceColumn.id === destinationColumn.id && column.id === sourceColumn.id) {
+      return { ...column, cardIds: nextDestination };
+    }
+    if (column.id === sourceColumn.id) {
+      return { ...column, cardIds: sourceWithout };
+    }
+    if (column.id === destinationColumn.id) {
+      return { ...column, cardIds: nextDestination };
+    }
+    return column;
+  });
+
+  if (sameColumnCardOrder(board.columns, nextColumns)) {
+    return board;
+  }
+
+  return { ...board, columns: nextColumns };
+}
+
+function findCardLocation(
+  board: BoardData,
+  cardId: string
+): { columnId: string; index: number } | null {
+  for (const column of board.columns) {
+    const index = column.cardIds.indexOf(cardId);
+    if (index !== -1) {
+      return { columnId: column.id, index };
     }
   }
   return null;
+}
+
+function sameColumnCardOrder(
+  before: BoardData["columns"],
+  after: BoardData["columns"]
+): boolean {
+  if (before.length !== after.length) return false;
+  for (let i = 0; i < before.length; i += 1) {
+    if (before[i].id !== after[i].id) return false;
+    const x = before[i].cardIds;
+    const y = after[i].cardIds;
+    if (x.length !== y.length) return false;
+    for (let j = 0; j < x.length; j += 1) {
+      if (x[j] !== y[j]) return false;
+    }
+  }
+  return true;
 }

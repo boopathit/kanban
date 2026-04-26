@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { KanbanBoard } from "@/components/KanbanBoard";
+import {
+  KanbanBoard,
+  applyPreviewMove,
+  resolveDropTarget,
+} from "@/components/KanbanBoard";
 import type { BoardData } from "@/lib/kanban";
 import type { BoardActions } from "@/lib/useBoard";
 
@@ -139,5 +143,69 @@ describe("KanbanBoard", () => {
     expect(button).toHaveTextContent(/log out/i);
     await userEvent.click(button);
     expect(onLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves same-column drop index correctly when dragging down", () => {
+    const board: BoardData = {
+      columns: [{ id: "col-a", title: "Backlog", cardIds: ["card-1", "card-2"] }],
+      cards: {
+        "card-1": { id: "card-1", title: "First", details: "" },
+        "card-2": { id: "card-2", title: "Second", details: "" },
+      },
+    };
+
+    expect(resolveDropTarget(board, "card-1", "card-2")).toEqual({
+      columnId: "col-a",
+      index: 1,
+    });
+  });
+
+  it("resolves cross-column drop onto a card as move into target column", () => {
+    const board: BoardData = {
+      columns: [
+        {
+          id: "col-discovery",
+          title: "Discovery",
+          cardIds: ["card-3"],
+        },
+        {
+          id: "col-progress",
+          title: "In Progress",
+          cardIds: ["card-4", "card-5"],
+        },
+      ],
+      cards: {
+        "card-3": { id: "card-3", title: "Discovery card", details: "" },
+        "card-4": { id: "card-4", title: "Progress card 1", details: "" },
+        "card-5": { id: "card-5", title: "Progress card 2", details: "" },
+      },
+    };
+
+    expect(resolveDropTarget(board, "card-4", "card-3")).toEqual({
+      columnId: "col-discovery",
+      index: 0,
+    });
+  });
+
+  it("applyPreviewMove reflows cards live across columns", () => {
+    const board: BoardData = {
+      columns: [
+        { id: "col-discovery", title: "Discovery", cardIds: ["card-3"] },
+        { id: "col-progress", title: "In Progress", cardIds: ["card-4", "card-5"] },
+      ],
+      cards: {
+        "card-3": { id: "card-3", title: "Discovery card", details: "" },
+        "card-4": { id: "card-4", title: "Progress card 1", details: "" },
+        "card-5": { id: "card-5", title: "Progress card 2", details: "" },
+      },
+    };
+
+    const moved = applyPreviewMove(board, "card-4", {
+      columnId: "col-discovery",
+      index: 0,
+    });
+
+    expect(moved.columns[0].cardIds).toEqual(["card-4", "card-3"]);
+    expect(moved.columns[1].cardIds).toEqual(["card-5"]);
   });
 });
