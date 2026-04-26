@@ -91,10 +91,12 @@ describe("KanbanBoard", () => {
   it("submitting the new card form calls actions.createCard", async () => {
     const { actions } = renderBoard();
     const column = screen.getAllByTestId(/^column-/i)[0];
-    await userEvent.click(within(column).getByRole("button", { name: /add a card/i }));
+    await userEvent.click(within(column).getByRole("button", { name: /\+ add card/i }));
     await userEvent.type(within(column).getByPlaceholderText(/card title/i), "New card");
     await userEvent.type(within(column).getByPlaceholderText(/details/i), "Notes");
-    await userEvent.click(within(column).getByRole("button", { name: /add card/i }));
+    await userEvent.click(
+      within(column).getByRole("button", { name: /^add card$/i })
+    );
     expect(actions.createCard).toHaveBeenCalledWith("col-a", "New card", "Notes");
   });
 
