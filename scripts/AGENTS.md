@@ -1,6 +1,6 @@
 # Scripts
 
-Start/stop the full Docker stack for local development. Bash for macOS/Linux, PowerShell for Windows. The behavior is identical across both.
+Scripts for both Docker runtime and hot-reload local development. Bash for macOS/Linux, PowerShell for Windows.
 
 ## Files
 
@@ -8,6 +8,7 @@ Start/stop the full Docker stack for local development. Bash for macOS/Linux, Po
 |------|----|---------|
 | `start.sh` / `start.ps1` | Linux+macOS / Windows | Build + start the container, then poll `/api/health` for up to 30 s |
 | `stop.sh` / `stop.ps1` | Linux+macOS / Windows | `docker compose down` |
+| `dev.sh` / `dev.ps1` | Linux+macOS / Windows | Start backend (`uvicorn --reload`) and frontend (`next dev`) together |
 
 ## Usage
 
@@ -16,6 +17,7 @@ macOS / Linux:
 ```bash
 ./scripts/start.sh
 ./scripts/stop.sh
+./scripts/dev.sh
 ```
 
 Windows (PowerShell):
@@ -23,7 +25,14 @@ Windows (PowerShell):
 ```powershell
 .\scripts\start.ps1
 .\scripts\stop.ps1
+.\scripts\dev.ps1
 ```
+
+`dev` runs both processes in one command:
+
+- backend: `http://127.0.0.1:8000` (`uv run uvicorn app.main:app --reload`)
+- frontend: `http://localhost:3000` (`npm run dev`, using Next dev rewrite for `/api/*`)
+- stop by pressing `Ctrl+C` in the same terminal.
 
 ## What `start` does
 
@@ -34,8 +43,10 @@ Windows (PowerShell):
 
 ## Requirements
 
-- Docker Desktop (Mac/Windows) or Docker Engine + Compose v2 (Linux).
-- For `start.sh`: `bash`, `curl`. For `start.ps1`: PowerShell 5.1+.
+- Docker Desktop (Mac/Windows) or Docker Engine + Compose v2 (Linux) for container mode.
+- For `start.sh`/`dev.sh`: `bash` (and `curl` for `start.sh`).
+- For `start.ps1`/`dev.ps1`: PowerShell 5.1+.
+- For `dev`: `uv` (Python tooling) and `npm` installed locally.
 - The repo's `.env` file with `SESSION_SECRET` and (later) `OPENROUTER_API_KEY` set.
 
 ## Adding a new script
