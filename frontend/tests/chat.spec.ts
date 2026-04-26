@@ -54,6 +54,7 @@ test("chat can rename Backlog to Inbox and refresh board without reload", async 
   });
 
   await page.reload();
+  await page.getByTestId("chat-launcher").click();
   await page.getByTestId("chat-input").fill("rename Backlog to Inbox");
   await page.getByTestId("chat-send").click();
   await expect(page.getByTestId("chat-message-assistant")).toContainText("Inbox");
@@ -111,6 +112,7 @@ test("chat can add card and new card appears in Inbox", async ({ page }) => {
   });
 
   await page.reload();
+  await page.getByTestId("chat-launcher").click();
   await page
     .getByTestId("chat-input")
     .fill("add a card titled E2E to Inbox with details demo");

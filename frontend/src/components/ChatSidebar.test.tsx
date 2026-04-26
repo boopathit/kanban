@@ -51,6 +51,7 @@ describe("ChatSidebar", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     render(<ChatSidebar setBoard={setBoard} />);
+    await userEvent.click(screen.getByTestId("chat-launcher"));
 
     const input = await screen.findByTestId("chat-input");
     await userEvent.type(input, "rename backlog to inbox");
@@ -96,6 +97,7 @@ describe("ChatSidebar", () => {
     );
 
     render(<ChatSidebar setBoard={vi.fn()} />);
+    await userEvent.click(screen.getByTestId("chat-launcher"));
     await userEvent.type(await screen.findByTestId("chat-input"), "delete secret");
     await userEvent.click(screen.getByTestId("chat-send"));
 

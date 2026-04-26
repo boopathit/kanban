@@ -16,8 +16,8 @@ const SUGGESTIONS = [
 ];
 
 export const ChatSidebar = ({ setBoard }: ChatSidebarProps) => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -47,70 +47,66 @@ export const ChatSidebar = ({ setBoard }: ChatSidebarProps) => {
     <>
       <button
         type="button"
-        data-testid="chat-mobile-open"
-        onClick={() => setIsMobileOpen(true)}
-        className="fixed bottom-5 right-5 z-30 rounded-full bg-[var(--secondary-purple)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white shadow-lg lg:hidden"
+        data-testid="chat-launcher"
+        onClick={() => {
+          setIsOpen(true);
+          setIsMinimized(false);
+        }}
+        className="fixed bottom-5 right-5 z-50 rounded-full bg-[var(--secondary-purple)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white shadow-lg transition hover:brightness-110"
       >
-        AI chat
+        AI assistant
       </button>
 
-      {isMobileOpen ? (
+      {isOpen && !isMinimized ? (
         <div
-          className="fixed inset-0 z-40 bg-[#032147]/45 backdrop-blur-[1px] lg:hidden"
-          onClick={() => setIsMobileOpen(false)}
+          className="fixed inset-0 z-40 bg-[#032147]/20 backdrop-blur-[1px]"
+          onClick={() => setIsOpen(false)}
           aria-hidden="true"
         />
       ) : null}
 
-      <aside
-        data-testid="chat-sidebar"
-        className={clsx(
-          "z-50 flex h-[72vh] w-full max-w-[380px] flex-col rounded-3xl border border-[var(--stroke)] bg-white/95 shadow-[var(--shadow)] backdrop-blur transition-all",
-          "lg:sticky lg:top-8 lg:h-[78vh]",
-          isCollapsed ? "lg:max-w-[76px]" : "lg:max-w-[380px]",
-          isMobileOpen
-            ? "fixed bottom-4 right-4 left-4"
-            : "hidden lg:flex"
-        )}
-      >
-        <header
+      {!isOpen ? null : (
+        <aside
+          data-testid="chat-sidebar"
           className={clsx(
-            "flex items-center justify-between border-b border-[var(--stroke)] px-4 py-3",
-            isCollapsed && "lg:justify-center"
+            "fixed bottom-20 right-4 z-50 flex flex-col rounded-3xl border border-[var(--stroke)] bg-white/95 shadow-[var(--shadow)] backdrop-blur transition-all",
+            "w-[min(390px,calc(100vw-2rem))]",
+            isMinimized ? "h-[70px]" : "h-[min(75vh,620px)]"
           )}
         >
-          {!isCollapsed ? (
-            <div>
-              <h2 className="font-display text-lg font-semibold text-[var(--navy-dark)]">
-                AI Assistant
-              </h2>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--gray-text)]">
-                Board-aware chat
-              </p>
-            </div>
-          ) : null}
+        <header
+          className="flex items-center justify-between border-b border-[var(--stroke)] px-4 py-3"
+        >
+          <div>
+            <h2 className="font-display text-lg font-semibold text-[var(--navy-dark)]">
+              AI Assistant
+            </h2>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--gray-text)]">
+              Board-aware chat
+            </p>
+          </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
-              data-testid="chat-collapse-toggle"
-              onClick={() => setIsCollapsed((v) => !v)}
-              className="hidden rounded-full border border-[var(--stroke)] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--gray-text)] transition hover:text-[var(--navy-dark)] lg:block"
-              aria-label={isCollapsed ? "Expand chat sidebar" : "Collapse chat sidebar"}
+              data-testid="chat-minimize"
+              onClick={() => setIsMinimized((v) => !v)}
+              className="rounded-full border border-[var(--stroke)] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--gray-text)] transition hover:text-[var(--navy-dark)]"
+              aria-label={isMinimized ? "Expand chat window" : "Minimize chat window"}
             >
-              {isCollapsed ? "Open" : "Collapse"}
+              {isMinimized ? "Open" : "Minimize"}
             </button>
             <button
               type="button"
-              className="rounded-full border border-[var(--stroke)] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--gray-text)] lg:hidden"
-              onClick={() => setIsMobileOpen(false)}
-              aria-label="Close chat sidebar"
+              className="rounded-full border border-[var(--stroke)] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--gray-text)]"
+              onClick={() => setIsOpen(false)}
+              aria-label="Close chat window"
             >
               Close
             </button>
           </div>
         </header>
 
-        {isCollapsed ? null : (
+        {isMinimized ? null : (
           <>
             <div
               ref={listRef}
@@ -222,7 +218,8 @@ export const ChatSidebar = ({ setBoard }: ChatSidebarProps) => {
             </footer>
           </>
         )}
-      </aside>
+        </aside>
+      )}
     </>
   );
 };
