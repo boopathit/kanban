@@ -4,11 +4,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
+REPO_ROOT = BACKEND_DIR.parent
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=None,
+        env_file=REPO_ROOT / ".env",
         env_prefix="",
         case_sensitive=False,
         extra="ignore",
