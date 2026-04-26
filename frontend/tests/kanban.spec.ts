@@ -74,3 +74,43 @@ test("moves a seeded card from Backlog into Review", async ({ page }) => {
     review.locator('[data-testid^="card-"]', { hasText: "Align roadmap themes" })
   ).toBeVisible();
 });
+
+test("column accepts drops across upper/middle/lower zones", async ({ page }) => {
+  const scenarios = [
+    { title: "Refine status language", yRatio: 0.2 },
+    { title: "Align roadmap themes", yRatio: 0.5 },
+    { title: "QA micro-interactions", yRatio: 0.8 },
+  ];
+
+  for (const scenario of scenarios) {
+    await page.goto("/");
+    const card = cardByTitle(page, scenario.title);
+    const discovery = columnByTitle(page, "Discovery");
+
+    await card.scrollIntoViewIfNeeded();
+    const cardBox = await card.boundingBox();
+    const columnBox = await discovery.boundingBox();
+    if (!cardBox || !columnBox) {
+      throw new Error("Unable to resolve drag coordinates.");
+    }
+
+    const targetY =
+      columnBox.y + Math.max(90, Math.min(columnBox.height - 170, columnBox.height * scenario.yRatio));
+
+    await page.mouse.move(
+      cardBox.x + cardBox.width / 2,
+      cardBox.y + cardBox.height / 2
+    );
+    await page.mouse.down();
+    await page.mouse.move(columnBox.x + columnBox.width / 2, targetY, {
+      steps: 16,
+    });
+    await page.mouse.up();
+
+    await expect(
+      discovery.locator('[data-testid^="card-"]', {
+        hasText: scenario.title,
+      })
+    ).toBeVisible();
+  }
+});
