@@ -364,63 +364,49 @@ Upgrade the AI endpoint to accept a user message plus conversation history, alwa
 
 ### Substeps
 
-- [ ] Define the response JSON schema in `backend/app/ai_schema.py`:
-  ```json
-  {
-    "type": "object",
-    "additionalProperties": false,
-    "required": ["reply"],
-    "properties": {
-      "reply": { "type": "string" },
-      "board_update": {
-        "type": ["object", "null"],
-        "additionalProperties": false,
-        "required": ["operations"],
-        "properties": {
-          "operations": {
-            "type": "array",
-            "items": {
-              "oneOf": [
-                { "type": "object", "required": ["op","column_id","title"], "properties": { "op": {"const":"rename_column"}, "column_id":{"type":"string"}, "title":{"type":"string"} } },
-                { "type": "object", "required": ["op","column_id","title","details"], "properties": { "op": {"const":"create_card"}, "column_id":{"type":"string"}, "title":{"type":"string"}, "details":{"type":"string"} } },
-                { "type": "object", "required": ["op","card_id"], "properties": { "op": {"const":"delete_card"}, "card_id":{"type":"string"} } },
-                { "type": "object", "required": ["op","card_id"], "properties": { "op": {"const":"update_card"}, "card_id":{"type":"string"}, "title":{"type":"string"}, "details":{"type":"string"}, "column_id":{"type":"string"}, "position":{"type":"integer"} } }
-              ]
-            }
-          }
-        }
-      }
-    }
-  }
-  ```
-- [ ] `backend/app/services/chat.py`:
-  - `start_or_get_conversation(user_id)` — reuses the user's single conversation row.
-  - `append_message(conversation_id, role, content)`.
-  - `build_system_prompt(board)` — instructs the model to only propose operations it knows will help the user; always include current board JSON.
-  - `apply_board_update(user_id, operations)` — reuses the Part-6 board service to execute each op in a transaction; validates that all `column_id`/`card_id` belong to this user; on any failure, rolls back and returns a structured error.
-- [ ] `backend/app/routes/ai.py`:
-  - `POST /api/chat` body `{message: string}`. Loads conversation history (capped at last N=30 messages), fetches board, calls OpenRouter with `response_format={"type":"json_schema", "json_schema": {...}}`. Persists the user and assistant messages. If the assistant returned `board_update`, applies it and returns `{reply, applied_ops, updated_board}`; else `{reply, applied_ops: []}`.
-  - `GET /api/chat/history` — returns recent messages for the UI.
-- [ ] Tests — `backend/tests/test_chat.py`:
-  - Stub OpenRouter to return a response with no `board_update` → reply is stored, nothing changes.
-  - Stub to return `rename_column` → column renamed in DB, `updated_board` matches reality.
-  - Stub to return `create_card` + `update_card` in a single call → both applied atomically.
-  - Stub to return an op referencing another user's card → rejected, DB unchanged, `applied_ops` empty, error reported in response but reply still stored.
-  - Malformed JSON from the model (force unparsable) → 502 with a safe error message; conversation still records the user message.
-  - History pagination / cap behaviour.
-- [ ] One live smoke test (gated) that asks "Please add a card titled 'Test' to Backlog with details 'from chat'" and asserts the card appears.
+- [x] `backend/app/ai_schema.py` — strict schema + typed parser:
+  - Pydantic models for `reply` and optional `board_update.operations` with discriminated union ops:
+    - `rename_column`, `create_card`, `delete_card`, `update_card`
+  - `CHAT_RESPONSE_SCHEMA` JSON schema (`additionalProperties: false` throughout).
+  - `openrouter_response_format()` returns OpenRouter `{"type":"json_schema","json_schema":{...,"strict":true}}`.
+  - `parse_chat_model_json(raw_json)` validates model output and rejects unknown fields/types.
+- [x] `backend/app/services/chat.py`:
+  - `start_or_get_conversation(user_id)` — one conversation row per user.
+  - `append_message(conversation_id, role, content)` — persists each chat turn message.
+  - `recent_messages(..., limit=30)` — capped history (ascending in response order).
+  - `build_system_prompt(board)` — embeds full current board JSON + operation rules.
+  - `apply_board_update(username, operations)` — executes board ops via Part-6 board service inside `session.begin_nested()` (transactional savepoint). On any invalid cross-user/missing id, rolls back all ops and returns `{applied_ops: [], error: ...}` while still allowing the assistant reply to persist.
+- [x] `backend/app/routes/ai.py`:
+  - Kept `POST /api/ai/ping` unchanged for Part-8 smoke.
+  - Added `POST /api/chat` body `{message}`:
+    - Auth required.
+    - Appends user message first.
+    - Loads board + last 30 messages and calls OpenRouter with strict JSON schema response format.
+    - On valid structured output, appends assistant reply.
+    - Applies optional board ops transactionally and returns `{reply, applied_ops, updated_board?, op_error?}`.
+    - Malformed model JSON returns `502` safe error (`"The AI service returned an invalid response."`) while preserving the user message.
+  - Added `GET /api/chat/history` returning recent persisted messages.
+- [x] Tests — `backend/tests/test_chat.py`:
+  - reply-only response stores user+assistant and leaves board unchanged.
+  - `rename_column` op mutates DB and returns `updated_board`.
+  - `create_card` + `update_card` apply in one turn.
+  - cross-user `card_id` op is rejected, board unchanged, `applied_ops=[]`, `op_error` present, reply still returned.
+  - malformed model JSON returns 502 and still records user message.
+  - history cap returns last 30 messages.
+  - live-gated smoke (`@pytest.mark.live`, requires both `OPENROUTER_API_KEY` and `RUN_OPENROUTER_LIVE=1`).
 
 ### Tests / checks
 
-- Unit tests green. Live smoke optional.
-- Manually verify via `curl` that a chat call updates the board JSON returned by `GET /api/board`.
+- [x] `cd backend && uv run pytest` — 76 passed, 2 skipped (`live` tests gated).
+- [x] Live smoke (Docker + curl): `POST /api/chat {"message":"Please rename Backlog to Inbox"}` returned reply + applied op; subsequent `GET /api/board` showed `Inbox`.
+- [x] Live test command available: `RUN_OPENROUTER_LIVE=1 OPENROUTER_API_KEY=... uv run pytest -m live -q`
 
 ### Success criteria
 
-- Every chat turn persists both messages.
-- The model's structured output is strictly validated; unknown fields rejected.
-- Board updates are transactional and user-scoped.
-- Reply always comes back even if ops fail.
+- [x] Every successful chat turn persists both messages (`user`, `assistant`).
+- [x] Structured output is strictly validated against schema; unknown/malformed payloads are rejected safely.
+- [x] Board updates are transactional and user-scoped (`begin_nested` + Part-6 ownership checks).
+- [x] Reply still comes back when ops fail (`op_error` set, `applied_ops=[]`, DB unchanged).
 
 ---
 
