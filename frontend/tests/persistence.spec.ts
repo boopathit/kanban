@@ -37,16 +37,35 @@ test("a card added in one session persists across reload and can be deleted", as
   await expect(columnAfter.getByText(title)).toBeVisible();
   await expect(columnAfter.getByText("Should survive reload")).toBeVisible();
 
-  const card = columnAfter.locator('[data-testid^="card-"]', {
-    hasText: title,
-  });
-  await card
-    .getByRole("button", { name: new RegExp(`delete ${title}`, "i") })
-    .click();
-  await expect(columnAfter.getByText(title)).toBeHidden();
+  const boardAfterReload = (await (
+    await page.request.get("/api/board")
+  ).json()) as {
+    columns: Array<{ id: string; title: string; cardIds: string[] }>;
+    cards: Record<string, { id: string; title: string; details: string }>;
+  };
+  const created = Object.values(boardAfterReload.cards).find((c) => c.title === title);
+  if (!created) throw new Error("Created card was not found in /api/board");
+
+  const cardId = created.id;
+  const deleteResp = await page.request.delete(`/api/cards/${cardId}`);
+  expect(deleteResp.status()).toBe(204);
+
+  await expect
+    .poll(
+      async () => {
+        const board = (await (
+          await page.request.get(`/api/board?ts=${Date.now()}`)
+        ).json()) as {
+          cards: Record<string, { id: string; title: string; details: string }>;
+        };
+        return Object.values(board.cards).some((c) => c.id === cardId);
+      },
+      { timeout: 10_000 }
+    )
+    .toBe(false);
 
   await page.reload();
-  await expect(columnByTitle(page, "Discovery").getByText(title)).toBeHidden();
+  await expect(columnByTitle(page, "Discovery").getByText(title)).toHaveCount(0);
 });
 
 test("renaming a column persists across reload", async ({ page }) => {

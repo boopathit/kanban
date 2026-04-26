@@ -63,6 +63,7 @@ export default function Home() {
       loading={board.loading}
       error={board.error}
       onDismissError={board.dismissError}
+      setBoard={board.setBoard}
       actions={board.actions}
       onLogout={handleLogout}
     />

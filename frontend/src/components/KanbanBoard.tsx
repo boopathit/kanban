@@ -13,6 +13,7 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
+import { ChatSidebar } from "@/components/ChatSidebar";
 import { Toast } from "@/components/Toast";
 import type { BoardData } from "@/lib/kanban";
 import type { BoardActions } from "@/lib/useBoard";
@@ -22,6 +23,7 @@ type KanbanBoardProps = {
   loading: boolean;
   error?: string | null;
   onDismissError?: () => void;
+  setBoard: (board: BoardData) => void;
   actions: BoardActions;
   onLogout?: () => void | Promise<void>;
 };
@@ -31,6 +33,7 @@ export const KanbanBoard = ({
   loading,
   error,
   onDismissError,
+  setBoard,
   actions,
   onLogout,
 }: KanbanBoardProps) => {
@@ -153,9 +156,7 @@ export const KanbanBoard = ({
                 onAddCard={(id, title, details) =>
                   void actions.createCard(id, title, details)
                 }
-                onDeleteCard={(_columnId, cardId) =>
-                  void actions.deleteCard(cardId)
-                }
+                onDeleteCard={(_columnId, cardId) => void actions.deleteCard(cardId)}
               />
             ))}
           </section>
@@ -168,6 +169,8 @@ export const KanbanBoard = ({
           </DragOverlay>
         </DndContext>
       </main>
+
+      <ChatSidebar setBoard={setBoard} />
 
       {error ? (
         <Toast message={error} onDismiss={onDismissError} variant="error" />

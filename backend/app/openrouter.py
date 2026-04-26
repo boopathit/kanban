@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 
 CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "openai/gpt-oss-120b"
+DEFAULT_MODEL = "openai/gpt-oss-120b:free"
 
 
 class OpenRouterError(Exception):

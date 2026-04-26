@@ -68,7 +68,7 @@ async def test_chat_posts_expected_payload() -> None:
         req = route.calls.last.request
         assert req.headers["authorization"] == "Bearer secret-key"
         payload = json.loads(req.content.decode())
-        assert payload["model"] == "openai/gpt-oss-120b"
+        assert payload["model"] == "openai/gpt-oss-120b:free"
         assert payload["messages"] == [{"role": "user", "content": "ping"}]
         assert "response_format" not in payload
 

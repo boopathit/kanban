@@ -43,6 +43,7 @@ describe("Home (auth gate)", () => {
         columns: [{ id: "col-a", title: "Backlog", cardIds: [] }],
         cards: {},
       });
+    if (url.endsWith("/api/chat/history")) return okJson({ messages: [] });
     return new Response("not stubbed", { status: 500 });
   };
 

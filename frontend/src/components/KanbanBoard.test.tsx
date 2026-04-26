@@ -5,6 +5,10 @@ import { KanbanBoard } from "@/components/KanbanBoard";
 import type { BoardData } from "@/lib/kanban";
 import type { BoardActions } from "@/lib/useBoard";
 
+vi.mock("@/components/ChatSidebar", () => ({
+  ChatSidebar: () => <div data-testid="chat-sidebar-mock" />,
+}));
+
 const FIXTURE: BoardData = {
   columns: [
     { id: "col-a", title: "Backlog", cardIds: ["card-1", "card-2"] },
@@ -31,6 +35,7 @@ const renderBoard = (props: Partial<React.ComponentProps<typeof KanbanBoard>> = 
       board={FIXTURE}
       loading={false}
       error={null}
+      setBoard={vi.fn()}
       actions={actions}
       {...props}
     />
@@ -45,6 +50,7 @@ describe("KanbanBoard", () => {
         board={null}
         loading={true}
         error={null}
+        setBoard={vi.fn()}
         actions={stubActions()}
       />
     );
@@ -57,6 +63,7 @@ describe("KanbanBoard", () => {
         board={null}
         loading={false}
         error={null}
+        setBoard={vi.fn()}
         actions={stubActions()}
       />
     );
@@ -108,6 +115,7 @@ describe("KanbanBoard", () => {
         loading={false}
         error="Something broke"
         onDismissError={onDismiss}
+        setBoard={vi.fn()}
         actions={stubActions()}
       />
     );
